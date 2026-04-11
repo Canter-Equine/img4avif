@@ -16,6 +16,7 @@
 /// | Field | Default |
 /// |-------|---------|
 /// | `quality` | `80` |
+/// | `alpha_quality` | `80` |
 /// | `speed` | `6` |
 /// | `strip_exif` | `true` |
 /// | `max_input_bytes` | 100 MiB |
@@ -26,6 +27,14 @@ pub struct Config {
     /// Encoding quality **1 – 100** (higher = better quality, larger file).
     /// Clamped to the valid range on assignment.  Default: `80`.
     pub quality: u8,
+
+    /// Alpha-channel encoding quality **1 – 100**.
+    ///
+    /// Controls the quality of the separate AVIF alpha plane independently
+    /// from the colour channels.  Set higher than `quality` (e.g. 95) to
+    /// keep the alpha channel visually lossless while compressing the colour
+    /// data more aggressively.  Clamped to `1 – 100`.  Default: `80`.
+    pub alpha_quality: u8,
 
     /// Encoder speed **1 – 10** (higher = faster, slightly larger file).
     /// Clamped to the valid range on assignment.  Default: `6`.
@@ -65,6 +74,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             quality: 80,
+            alpha_quality: 80,
             speed: 6,
             strip_exif: true,
             max_input_bytes: 100 * 1024 * 1024,
@@ -75,10 +85,20 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Set the encoding quality (1 – 100). Values are clamped to this range.
+    /// Set the colour-channel encoding quality (1 – 100). Values are clamped.
     #[must_use]
     pub fn quality(mut self, q: u8) -> Self {
         self.quality = q.clamp(1, 100);
+        self
+    }
+
+    /// Set the alpha-channel encoding quality (1 – 100). Values are clamped.
+    ///
+    /// Use a higher value than `quality` to keep the alpha plane visually
+    /// lossless, for example `.alpha_quality(95)`.
+    #[must_use]
+    pub fn alpha_quality(mut self, q: u8) -> Self {
+        self.alpha_quality = q.clamp(1, 100);
         self
     }
 
@@ -125,6 +145,7 @@ impl Config {
     pub fn lambda_cost_optimized() -> Self {
         Self {
             quality: 75,
+            alpha_quality: 75,
             speed: 10,
             strip_exif: true,
             max_input_bytes: 50 * 1024 * 1024,

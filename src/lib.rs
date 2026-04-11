@@ -28,19 +28,27 @@
 //!
 //! ## Supported input formats
 //!
-//! | Format | File extensions | Feature flag | Notes |
-//! |--------|----------------|-------------|-------|
-//! | JPEG | `.jpg`, `.jpeg` | *(always on)* | 8-bit, greyscale or YCbCr |
-//! | PNG | `.png` | *(always on)* | 8-bit and 16-bit (HDR10) |
-//! | WebP | `.webp` | *(always on)* | lossy and lossless |
-//! | HEIC / HEIF | `.heic`, `.heif` | `heic-experimental` | Requires `libheif` C library |
+//! | Format | Extensions | Feature flag | AVIF output bit-depth |
+//! |--------|-----------|-------------|----------------------|
+//! | JPEG | `.jpg`, `.jpeg` | *(always on)* | 10-bit (ravif auto) |
+//! | PNG (8-bit) | `.png` | *(always on)* | 10-bit (ravif auto) |
+//! | PNG (16-bit / HDR10) | `.png` | *(always on)* | **10-bit** (`encode_raw_planes_10_bit`) |
+//! | WebP | `.webp` | *(always on)* | 10-bit (ravif auto) |
+//! | HEIC / HEIF | `.heic`, `.heif` | `heic-experimental` | 10-bit (ravif auto) |
 //!
 //! ## HDR10
 //!
-//! 16-bit PNG files commonly used to distribute HDR10 content are accepted
-//! natively: the `image` crate scales each channel from 16 to 8 bits before
-//! encoding.  The AVIF output is an SDR file; full HDR10 (BT.2020 + PQ) AVIF
-//! output requires a future encoder upgrade.
+//! **16-bit PNG** files (a standard still-image HDR10 format) are decoded at
+//! full precision and encoded as genuine **10-bit AVIF** using ravif's
+//! `encode_raw_planes_10_bit`.  Each 16-bit channel is scaled to 10 bits
+//! (right-shift by 6) and then converted to YCbCr BT.601, preserving 1 024
+//! distinct levels per channel instead of the 256 available in 8-bit output.
+//!
+//! > **Note on CICP metadata:** The AVIF colour primaries and transfer
+//! > characteristics fields will reflect BT.601 / sRGB because ravif 0.13
+//! > hardcodes those values in the raw-planes encoder path.  True HDR10 CICP
+//! > metadata (BT.2020 primaries + PQ / HLG transfer) requires a future
+//! > upgrade to a newer `rav1e` version.
 //!
 //! HEIC files that carry HDR10 colour profiles are decoded by `libheif` when
 //! the `heic-experimental` feature is enabled.
@@ -124,12 +132,13 @@ impl Converter {
     /// The input format is detected automatically from magic bytes; the
     /// following formats are supported:
     ///
-    /// | Format | Always available? |
-    /// |--------|------------------|
-    /// | JPEG / JPG | ✓ |
-    /// | PNG (8-bit and 16-bit / HDR10) | ✓ |
-    /// | WebP | ✓ |
-    /// | HEIC / HEIF | `heic-experimental` feature only |
+    /// | Format | Always available? | AVIF bit-depth |
+    /// |--------|------------------|---------------|
+    /// | JPEG / JPG | ✓ | 10-bit (ravif auto) |
+    /// | PNG (8-bit) | ✓ | 10-bit (ravif auto) |
+    /// | PNG (16-bit / HDR10) | ✓ | **10-bit** (raw planes) |
+    /// | WebP | ✓ | 10-bit (ravif auto) |
+    /// | HEIC / HEIF | `heic-experimental` feature only | 10-bit (ravif auto) |
     ///
     /// Returns the encoded AVIF file as a `Vec<u8>`.
     ///
@@ -177,7 +186,7 @@ impl Converter {
         // Post-decode RSS check: the pixel buffer is now live.
         guard.check()?;
 
-        let avif = encoder::encode_avif(&raw, self.config.quality, self.config.speed)?;
+        let avif = encoder::encode_avif(&raw, self.config.quality, self.config.speed, self.config.alpha_quality)?;
         Ok(avif)
     }
 
@@ -230,11 +239,13 @@ mod tests {
 
     #[test]
     fn config_builder_clamps_values() {
-        let cfg = Config::default().quality(200).speed(99);
+        let cfg = Config::default().quality(200).alpha_quality(200).speed(99);
         assert_eq!(cfg.quality, 100);
+        assert_eq!(cfg.alpha_quality, 100);
         assert_eq!(cfg.speed, 10);
-        let cfg_low = Config::default().quality(0);
+        let cfg_low = Config::default().quality(0).alpha_quality(0);
         assert_eq!(cfg_low.quality, 1);
+        assert_eq!(cfg_low.alpha_quality, 1);
     }
 
     #[test]

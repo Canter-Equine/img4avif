@@ -132,6 +132,70 @@ fn config_is_clone() {
     assert_eq!(a.clone().quality, 42);
 }
 
+/// Make a 16-bit PNG image (Rgb16 colour type).
+///
+/// 16-bit PNGs are the primary distribution format for HDR10 still images.
+/// Each channel value is set to `value` (0 – 65535) for reproducibility.
+fn make_png_16bit(width: u32, height: u32, channel_value: u16) -> Vec<u8> {
+    use image::{ImageBuffer, Rgb};
+    let img: ImageBuffer<Rgb<u16>, Vec<u16>> =
+        ImageBuffer::from_pixel(width, height, Rgb([channel_value; 3]));
+    let mut buf = Vec::new();
+    image::DynamicImage::ImageRgb16(img)
+        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+        .unwrap();
+    buf
+}
+
+#[test]
+fn png_16bit_produces_avif() {
+    // Verify that a 16-bit PNG (HDR10-compatible input) is accepted and
+    // produces a non-empty AVIF file.
+    let png16 = make_png_16bit(32, 32, 48_000);
+    let avif = Converter::new(Config::default())
+        .unwrap()
+        .convert(&png16)
+        .expect("16-bit PNG → AVIF conversion failed");
+    assert!(!avif.is_empty(), "16-bit PNG produced empty AVIF output");
+}
+
+#[test]
+fn png_16bit_dark_and_bright_both_succeed() {
+    // Test both ends of the 16-bit range.
+    for value in [0u16, 32768, 65535] {
+        let png = make_png_16bit(8, 8, value);
+        let avif = Converter::new(Config::default())
+            .unwrap()
+            .convert(&png)
+            .unwrap_or_else(|e| panic!("16-bit PNG (value={value}) failed: {e}"));
+        assert!(!avif.is_empty(), "value={value} produced empty output");
+    }
+}
+
+#[test]
+fn alpha_quality_setting_is_accepted() {
+    // Verify that alpha_quality flows through without error.
+    let cfg = Config::default().quality(80).alpha_quality(95);
+    assert_eq!(cfg.alpha_quality, 95);
+    let avif = Converter::new(cfg)
+        .unwrap()
+        .convert(&make_png(16, 16))
+        .expect("alpha_quality=95 conversion failed");
+    assert!(!avif.is_empty());
+}
+
+#[test]
+fn config_alpha_quality_clamped() {
+    assert_eq!(Config::default().alpha_quality(0).alpha_quality, 1);
+    assert_eq!(Config::default().alpha_quality(200).alpha_quality, 100);
+}
+
+#[test]
+fn converter_exposes_config() {
+    let cfg = Config::default().quality(77);
+    assert_eq!(Converter::new(cfg).unwrap().config().quality, 77);
+}
+
 #[test]
 fn heic_without_feature_returns_unsupported_format() {
     // A minimal synthetic ISOBMFF ftyp box: size=0x14, type=ftyp, brand=heic.

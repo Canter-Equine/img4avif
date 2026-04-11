@@ -8,35 +8,53 @@
 //! | Format | Feature flag | Notes |
 //! |--------|-------------|-------|
 //! | JPEG / JPG | *(always on)* | 8-bit YCbCr or greyscale |
-//! | PNG | *(always on)* | 8-bit and 16-bit (HDR10) inputs accepted |
+//! | PNG | *(always on)* | 8-bit → 8-bit AVIF; **16-bit → 10-bit AVIF** |
 //! | WebP | *(always on)* | lossy and lossless |
 //! | HEIC / HEIF | `heic-experimental` | Requires the `libheif` C library at link time |
 //!
-//! ## HDR10 notes
+//! ## 16-bit PNG and HDR10
 //!
-//! 16-bit PNG files (often used to store HDR10 content) are accepted by the
-//! PNG decoder.  The `image` crate scales each channel from 16-bit to 8-bit
-//! before the pixel buffer is handed to the AVIF encoder, so the output is
-//! an SDR AVIF.  True 10-bit HDR AVIF output with BT.2020 / PQ colour
-//! metadata requires a future upgrade to the encoder backend.
+//! 16-bit PNG files (a standard distribution format for HDR10 still images)
+//! are decoded with full 16-bit precision and then **encoded as 10-bit AVIF**
+//! via `rav1e`'s `encode_raw_planes_10_bit`.  The 6 least-significant bits are
+//! discarded (>> 6), which matches the precision available in a 10-bit AV1
+//! bitstream.
+//!
+//! The AVIF colour description (CICP metadata) will use BT.601 / sRGB
+//! primaries because `rav1e` 0.7 / ravif 0.13 hardcodes those values in the
+//! raw-planes encoder.  Full BT.2020 + PQ CICP metadata requires a future
+//! upgrade to a newer `rav1e` build.
 //!
 //! HEIC files carrying HDR10 metadata are decoded via `libheif` when the
-//! `heic-experimental` feature is enabled.  The HDR colour profile is
-//! preserved in `libheif`'s decoded bitmap; the AVIF encoder then encodes
-//! the resulting RGBA8 pixels.
+//! `heic-experimental` feature is enabled and the resulting 8-bit pixels are
+//! encoded at the standard quality.
 
 use std::io::Cursor;
 
 use crate::Error;
 
-/// A decoded image in row-major RGBA8 format, ready for AVIF encoding.
+/// Pixel data for a decoded image.
+///
+/// The 8-bit variant is produced by JPEG, WebP, 8-bit PNG, and HEIC decoders.
+/// The 16-bit variant is produced by 16-bit PNG and leads to 10-bit AVIF output.
+pub enum Pixels {
+    /// Standard 8-bit RGBA pixels (`width × height × 4` bytes).
+    Rgba8(Vec<u8>),
+    /// 16-bit RGBA pixels (`width × height × 4` `u16` samples).
+    ///
+    /// Each sample is in the range 0 – 65 535.  The encoder scales these to
+    /// the 0 – 1 023 range required by `encode_raw_planes_10_bit`.
+    Rgba16(Vec<u16>),
+}
+
+/// A decoded image ready for AVIF encoding.
 pub struct RawImage {
     /// Width in pixels.
     pub width: u32,
     /// Height in pixels.
     pub height: u32,
-    /// Raw pixel data: `width × height × 4` bytes, in RGBA order.
-    pub pixels: Vec<u8>,
+    /// Pixel data — either 8-bit or 16-bit RGBA.
+    pub pixels: Pixels,
 }
 
 /// Returns `true` when `data` starts with an ISO Base Media file type box
@@ -60,11 +78,11 @@ fn is_heif_ftyp(data: &[u8]) -> bool {
 /// enormous dimensions will exhaust the budget and return an error rather
 /// than allocating gigabytes of RAM.
 ///
-/// # HDR10
+/// # 16-bit PNG / HDR10
 ///
-/// 16-bit PNG inputs are accepted and the channels are scaled to 8-bit before
-/// encoding.  HEIC files with HDR10 metadata are handled by `libheif` when
-/// the `heic-experimental` feature is enabled.
+/// 16-bit PNG inputs are decoded with full precision and returned as
+/// [`Pixels::Rgba16`].  The encoder converts these to 10-bit AVIF using
+/// `encode_raw_planes_10_bit`.
 ///
 /// # Errors
 ///
@@ -82,6 +100,9 @@ pub fn decode(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
 }
 
 /// Decode a JPEG, PNG, or WebP image using the `image` crate.
+///
+/// 16-bit PNG images are decoded to [`Pixels::Rgba16`]; all other formats
+/// produce [`Pixels::Rgba8`].
 fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
     let mut reader = image::ImageReader::new(Cursor::new(data))
         .with_guessed_format()
@@ -95,22 +116,20 @@ fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Erro
     }
 
     // Cap the decoder's allocation budget to prevent decompression bombs.
-    // A legitimate image of `max_pixels` RGBA8 pixels costs `max_pixels * 4`
-    // bytes; we add 64 MiB headroom for decoder internal state.
+    // 16-bit RGBA8 needs up to `max_pixels * 8` bytes; we add 64 MiB headroom.
     let alloc_cap = max_pixels
-        .saturating_mul(4)
+        .saturating_mul(8)
         .saturating_add(64 * 1024 * 1024);
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(alloc_cap);
     reader.limits(limits);
 
     let img = reader.decode().map_err(|e| Error::Decode(e.to_string()))?;
-    let rgba = img.into_rgba8();
-    let (width, height) = rgba.dimensions();
 
-    // Belt-and-suspenders: the Limits check above should prevent this, but
-    // we enforce the pixel cap here too so callers always see InputTooLarge
-    // rather than a cryptic Decode error if a decoder ignores max_alloc.
+    let (width, height) = (img.width(), img.height());
+
+    // Belt-and-suspenders pixel cap: the Limits check above should prevent
+    // this, but we enforce it here too so callers always see InputTooLarge.
     let pixel_count = u64::from(width) * u64::from(height);
     if pixel_count > max_pixels {
         return Err(Error::InputTooLarge {
@@ -120,10 +139,19 @@ fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Erro
         });
     }
 
+    // Preserve 16-bit precision for PNG inputs so the encoder can produce
+    // genuine 10-bit AVIF output (rather than silently discarding 6 bits).
+    let pixels = match img.color() {
+        image::ColorType::Rgb16 | image::ColorType::Rgba16 => {
+            Pixels::Rgba16(img.into_rgba16().into_raw())
+        }
+        _ => Pixels::Rgba8(img.into_rgba8().into_raw()),
+    };
+
     Ok(RawImage {
         width,
         height,
-        pixels: rgba.into_raw(),
+        pixels,
     })
 }
 
@@ -184,11 +212,11 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
         .interleaved
         .ok_or_else(|| Error::Decode("HEIF image has no interleaved RGBA plane".into()))?;
 
-    // The pixel count has already been validated above, so the stride may
-    // include padding bytes at the end of each row.  Strip them out so that
-    // the pixel buffer is exactly `width * height * 4` bytes.
+    // `interleaved.stride` is the actual number of bytes per row (may include
+    // padding).  Strip padding so the pixel buffer is exactly `width * 4` bytes
+    // per row.
     let row_bytes = width as usize * 4;
-    let stride = interleaved.width as usize * 4;
+    let stride = interleaved.stride; // bytes per row, not pixels
     let pixels: Vec<u8> = if stride == row_bytes {
         interleaved.data.to_vec()
     } else {
@@ -203,6 +231,6 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
     Ok(RawImage {
         width,
         height,
-        pixels,
+        pixels: Pixels::Rgba8(pixels),
     })
 }

@@ -89,12 +89,13 @@ let avif = converter.convert(&input_bytes)?;
 
 ## Supported input formats
 
-| Format | Extensions | Feature flag | Notes |
-|--------|-----------|-------------|-------|
-| JPEG | `.jpg`, `.jpeg` | *(always on)* | 8-bit YCbCr or greyscale |
-| PNG | `.png` | *(always on)* | 8-bit and **16-bit (HDR10)** |
-| WebP | `.webp` | *(always on)* | lossy and lossless |
-| HEIC / HEIF | `.heic`, `.heif` | `heic-experimental` | Requires `libheif` C library |
+| Format | Extensions | Feature flag | AVIF bit-depth |
+|--------|-----------|-------------|---------------|
+| JPEG | `.jpg`, `.jpeg` | *(always on)* | 10-bit (ravif auto) |
+| PNG (8-bit) | `.png` | *(always on)* | 10-bit (ravif auto) |
+| PNG (16-bit / HDR10) | `.png` | *(always on)* | **10-bit** via `encode_raw_planes_10_bit` |
+| WebP | `.webp` | *(always on)* | 10-bit (ravif auto) |
+| HEIC / HEIF | `.heic`, `.heif` | `heic-experimental` | 10-bit (ravif auto) |
 
 Format detection is **magic-byte based** — file extensions are not trusted.
 
@@ -104,12 +105,16 @@ Format detection is **magic-byte based** — file extensions are not trusted.
 
 ### 16-bit PNG inputs
 
-16-bit PNG files (a common HDR10 distribution format) are accepted natively.
-The `image` crate decodes each 16-bit channel and scales it to 8 bits before
-the AVIF encoder receives the pixel data.  The resulting AVIF is an SDR file.
+16-bit PNG files (the standard delivery format for HDR10 still images) are
+decoded with full precision and encoded as genuine **10-bit AVIF** using
+`encode_raw_planes_10_bit`.  Each 16-bit channel (0 – 65 535) is scaled to
+10-bit (0 – 1 023) and then converted to YCbCr BT.601, preserving **1 024
+distinct levels per channel** instead of the 256 available from 8-bit output.
 
-Full HDR10 round-trip output (BT.2020 primaries + PQ / ST.2084 transfer
-function, 10-bit depth) requires a future encoder backend upgrade.
+> **CICP metadata note:** The AVIF colour primaries and transfer
+> characteristics will reflect BT.601 / sRGB because ravif 0.13 hardcodes
+> those values in the raw-planes encoder path.  Full HDR10 CICP metadata
+> (BT.2020 primaries + PQ / HLG transfer) requires a future `rav1e` upgrade.
 
 ### HEIC with HDR10 metadata
 
@@ -130,7 +135,8 @@ img2avif = { version = "0.1", features = ["heic-experimental"] }
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `quality` | `u8` | `80` | Encoding quality (1 – 100). Higher = better, larger. |
+| `quality` | `u8` | `80` | Colour encoding quality (1 – 100). Higher = better, larger. |
+| `alpha_quality` | `u8` | `80` | Alpha-channel quality (1 – 100). Set higher (e.g. 95) to keep alpha visually lossless. |
 | `speed` | `u8` | `6` | Encoder speed (1 – 10). Higher = faster, slightly larger. |
 | `strip_exif` | `bool` | `true` | Strip all EXIF/IPTC/XMP metadata (recommended). |
 | `max_input_bytes` | `u64` | `104_857_600` (100 MiB) | Maximum raw input file size. |
@@ -142,6 +148,7 @@ All setter methods return `Self` for chaining:
 ```rust
 let config = Config::default()
     .quality(90)
+    .alpha_quality(95)  // keep alpha visually lossless
     .speed(8)
     .max_pixels(10_000 * 10_000)
     .memory_limit_bytes(512 * 1024 * 1024);
