@@ -393,13 +393,28 @@ impl Converter {
         }
 
         let processed: Vec<u8> = if self.config.strip_exif {
-            let stripped = metadata::strip_metadata(input);
-            img_debug!(
-                "validate_and_decode: metadata stripped — {} → {} bytes",
-                input.len(),
-                stripped.len()
-            );
-            stripped
+            match metadata::strip_metadata(input) {
+                Some(stripped) => {
+                    img_debug!(
+                        "validate_and_decode: metadata stripped — {} → {} bytes",
+                        input.len(),
+                        stripped.len()
+                    );
+                    stripped
+                }
+                None => {
+                    img_error!(
+                        "validate_and_decode: strip_exif=true but format not supported \
+                         for metadata stripping ({} bytes)",
+                        input.len()
+                    );
+                    return Err(Error::UnsupportedFormat(
+                        "EXIF stripping is not supported for this image format; \
+                         use strip_exif(false) to convert without stripping metadata"
+                            .into(),
+                    ));
+                }
+            }
         } else {
             input.to_vec()
         };

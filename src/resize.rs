@@ -135,13 +135,21 @@ pub(crate) fn resize_raw_image(
     }
 
     let new_width = target_width;
-    // Proportional height, rounded to nearest pixel.  Use u64 arithmetic to
-    // avoid overflow when width × new_width exceeds u32::MAX.
-    let new_height = u32::try_from(
-        (u64::from(height) * u64::from(new_width) + u64::from(width) / 2) / u64::from(width),
-    )
-    .unwrap_or(1)
-    .max(1);
+    // Proportional height, rounded to nearest pixel.  Use saturating u64
+    // arithmetic so that extreme aspect ratios cannot silently produce a
+    // 1-pixel-tall output via integer overflow.
+    let height_u64 = u64::from(height)
+        .saturating_mul(u64::from(new_width))
+        .saturating_add(u64::from(width) / 2)
+        / u64::from(width);
+
+    let new_height = u32::try_from(height_u64)
+        .map_err(|_| {
+            Error::Internal(format!(
+                "resize calculation overflow: {width}×{height} → width {target_width}"
+            ))
+        })?
+        .max(1);
 
     img_info!(
         "resize: {}×{} → {}×{} ({} target width, Lanczos3)",
@@ -389,5 +397,18 @@ mod tests {
         assert_eq!(out2560.width, 1);
         let out1080 = resize_raw_image(&raw, OutputResolution::Width1080).unwrap();
         assert_eq!(out1080.width, 1);
+    }
+
+    #[test]
+    fn saturating_arithmetic_does_not_truncate_tall_image() {
+        // A very tall portrait image: 4096×16384 resized to Width2560.
+        // height_u64 = (16384 * 2560 + 2048) / 4096 = 10,240 — fits in u32.
+        // This test verifies the saturating-arithmetic path produces the
+        // correct proportional height without any silent truncation.
+        let raw = solid_rgba8(4096, 16384);
+        let out = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
+        assert_eq!(out.width, 2560);
+        // height = (16384 * 2560 + 2048) / 4096 = 10240
+        assert_eq!(out.height, 10240);
     }
 }

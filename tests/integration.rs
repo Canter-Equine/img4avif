@@ -232,12 +232,75 @@ fn heic_without_feature_returns_unsupported_format() {
         "expected UnsupportedFormat or Decode, got: {err:?}"
     );
 
-    // When the feature is off, the error message should hint at the feature flag.
+    // When the feature is off, the error message should hint at the feature flag
+    // or indicate that EXIF stripping is not supported for this format.
+    // With strip_exif=true (the default), the metadata-stripping stage fires
+    // first and reports an UnsupportedFormat error before the decoder is even
+    // reached.  Both messages are valid UnsupportedFormat errors.
     #[cfg(not(feature = "heic-experimental"))]
     if let Error::UnsupportedFormat(msg) = &err {
         assert!(
-            msg.contains("heic-experimental"),
-            "UnsupportedFormat message should mention 'heic-experimental', got: {msg}"
+            msg.contains("heic-experimental") || msg.contains("strip_exif"),
+            "UnsupportedFormat message should mention 'heic-experimental' or 'strip_exif', \
+             got: {msg}"
+        );
+    }
+}
+
+#[test]
+fn strip_exif_true_with_unsupported_format_returns_error() {
+    // A synthetic HEIC ftyp box — strip_exif=true (the default) should
+    // return UnsupportedFormat rather than silently passing through with
+    // metadata intact.
+    let fake_heic: &[u8] = &[
+        0x00, 0x00, 0x00, 0x14, // box size = 20
+        0x66, 0x74, 0x79, 0x70, // "ftyp"
+        0x68, 0x65, 0x69, 0x63, // major brand "heic"
+        0x00, 0x00, 0x00, 0x00, // minor version
+        0x68, 0x65, 0x69, 0x63, // compatible brand "heic"
+    ];
+
+    // strip_exif=true is the default.
+    let err = Converter::new(Config::default())
+        .unwrap()
+        .convert(fake_heic)
+        .unwrap_err();
+
+    assert!(
+        matches!(err, Error::UnsupportedFormat(_) | Error::Decode(_)),
+        "expected UnsupportedFormat or Decode for HEIC with strip_exif=true, got: {err:?}"
+    );
+}
+
+#[test]
+fn strip_exif_false_with_heic_format_does_not_error_at_strip_step() {
+    // With strip_exif=false the metadata-stripping stage is bypassed entirely.
+    // A fake HEIC payload will still fail (no decoder), but the error must
+    // come from the decoder, not from metadata stripping.
+    let fake_heic: &[u8] = &[
+        0x00, 0x00, 0x00, 0x14,
+        0x66, 0x74, 0x79, 0x70,
+        0x68, 0x65, 0x69, 0x63,
+        0x00, 0x00, 0x00, 0x00,
+        0x68, 0x65, 0x69, 0x63,
+    ];
+
+    let err = Converter::new(Config::default().strip_exif(false))
+        .unwrap()
+        .convert(fake_heic)
+        .unwrap_err();
+
+    // The error should come from the decoder / UnsupportedFormat (feature
+    // flag) path, not from the metadata-stripping stage.
+    assert!(
+        matches!(err, Error::UnsupportedFormat(_) | Error::Decode(_)),
+        "expected UnsupportedFormat or Decode, got: {err:?}"
+    );
+    // Crucially it must NOT mention 'strip_exif' since stripping was disabled.
+    if let Error::UnsupportedFormat(msg) = &err {
+        assert!(
+            !msg.contains("strip_exif"),
+            "error should not mention strip_exif when stripping is disabled, got: {msg}"
         );
     }
 }
