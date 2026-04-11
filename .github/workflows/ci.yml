@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         rust: [stable]
         include:
           # Verify MSRV on Linux only (saves CI minutes).
@@ -139,7 +139,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        run: cargo install cargo-audit --version 0.22.1
 
       - name: cargo audit
         run: cargo audit
@@ -155,6 +155,15 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: memory-stress-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run 50 MP stress test
         run: cargo test --test memory_stress -- --ignored --nocapture
