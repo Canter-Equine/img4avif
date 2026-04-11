@@ -94,15 +94,15 @@ pub(crate) fn resize_raw_image(raw: RawImage, resolution: OutputResolution) -> R
         return Ok(raw);
     };
 
-    let RawImage { width, height, pixels } = raw;
-
-    if width <= target_width {
+    if raw.width <= target_width {
         img_debug!(
             "resize: {}×{} is already within {}px target — skipping",
-            width, height, target_width
+            raw.width, raw.height, target_width
         );
-        return Ok(RawImage { width, height, pixels });
+        return Ok(raw);
     }
+
+    let RawImage { width, height, pixels } = raw;
 
     let new_width = target_width;
     // Proportional height, rounded to nearest pixel.  Use u64 arithmetic to

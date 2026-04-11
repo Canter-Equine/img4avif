@@ -279,6 +279,12 @@ impl Converter {
     ///
     /// Returns the first error encountered (during decode or any encode step).
     /// Errors are the same variants as [`Self::convert`].
+    ///
+    /// # Panics
+    ///
+    /// Does not panic in practice.  An internal `expect` guards an invariant
+    /// that the resolution list is always non-empty (the empty case is replaced
+    /// with `[Original]` before reaching that point).
     pub fn convert_multi(&self, input: &[u8]) -> Result<Vec<ConversionOutput>, Error> {
         use logging::{img_error, img_info};
 
@@ -303,7 +309,16 @@ impl Converter {
         };
 
         let mut outputs = Vec::with_capacity(resolutions.len());
-        for &resolution in resolutions {
+
+        // `resolutions` is guaranteed non-empty (enforced above).  Split into
+        // the initial slice and the final element so we can *move* `raw` on the
+        // last iteration instead of cloning it — the pixel buffer can be
+        // hundreds of megabytes, so avoiding the final clone matters.
+        let (last_res, rest_res) = resolutions
+            .split_last()
+            .expect("resolutions is always non-empty");
+
+        for &resolution in rest_res {
             let resized = resize::resize_raw_image(raw.clone(), resolution)?;
             let data = match self.encode_raw(&resized) {
                 Ok(d) => d,
@@ -312,13 +327,28 @@ impl Converter {
                     return Err(e);
                 }
             };
-            img_info!(
-                "convert_multi: {:?} → {} bytes",
-                resolution,
-                data.len(),
-            );
+            img_info!("convert_multi: {:?} → {} bytes", resolution, data.len());
             outputs.push(ConversionOutput { resolution, data });
         }
+
+        // Last resolution — move `raw` to avoid the final clone.
+        let resized = resize::resize_raw_image(raw, *last_res)?;
+        let data = match self.encode_raw(&resized) {
+            Ok(d) => d,
+            Err(e) => {
+                img_error!(
+                    "convert_multi: encode for {:?} failed — {}",
+                    last_res,
+                    e
+                );
+                return Err(e);
+            }
+        };
+        img_info!("convert_multi: {:?} → {} bytes", last_res, data.len());
+        outputs.push(ConversionOutput {
+            resolution: *last_res,
+            data,
+        });
 
         img_info!(
             "convert_multi: complete — {} output(s) produced",
@@ -370,16 +400,16 @@ impl Converter {
             return Err(e);
         }
 
-        let processed: Vec<u8> = if self.config.strip_exif {
+        let processed: std::borrow::Cow<[u8]> = if self.config.strip_exif {
             let stripped = metadata::strip_metadata(input);
             img_debug!(
                 "validate_and_decode: metadata stripped — {} → {} bytes",
                 input.len(),
                 stripped.len()
             );
-            stripped
+            std::borrow::Cow::Owned(stripped)
         } else {
-            input.to_vec()
+            std::borrow::Cow::Borrowed(input)
         };
 
         img_debug!("validate_and_decode: decoding {} bytes", processed.len());

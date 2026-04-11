@@ -282,12 +282,11 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
     let pixels: Vec<u8> = if stride == row_bytes {
         interleaved.data.to_vec()
     } else {
-        interleaved
-            .data
-            .chunks(stride)
-            .flat_map(|row| &row[..row_bytes])
-            .copied()
-            .collect()
+        let mut buf = Vec::with_capacity(height as usize * row_bytes);
+        for row in interleaved.data.chunks(stride) {
+            buf.extend_from_slice(&row[..row_bytes]);
+        }
+        buf
     };
 
     img_info!("decode_heif: {}×{} decoded OK", width, height);

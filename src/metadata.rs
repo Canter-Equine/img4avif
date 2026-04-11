@@ -9,30 +9,43 @@ use img_parts::{webp::WebP, Bytes, ImageEXIF, ImageICC};
 /// - **WebP** — removes EXIF, ICC, and XMP chunks via the RIFF container
 ///
 /// For any other format the bytes are returned unchanged (best-effort).
+///
+/// The format is detected from magic bytes so that only a single parse attempt
+/// is made, avoiding redundant copies and failed parses for the two formats
+/// that don't match.
 pub fn strip_metadata(data: &[u8]) -> Vec<u8> {
-    if let Ok(mut jpeg) = img_parts::jpeg::Jpeg::from_bytes(Bytes::copy_from_slice(data)) {
-        jpeg.set_exif(None);
-        jpeg.set_icc_profile(None);
-        jpeg.segments_mut()
-            .retain(|seg| !is_stripped_jpeg_marker(seg.marker()));
-        return jpeg.encoder().bytes().to_vec();
+    // JPEG: SOI marker 0xFF 0xD8
+    if data.starts_with(b"\xFF\xD8") {
+        if let Ok(mut jpeg) = img_parts::jpeg::Jpeg::from_bytes(Bytes::copy_from_slice(data)) {
+            jpeg.set_exif(None);
+            jpeg.set_icc_profile(None);
+            jpeg.segments_mut()
+                .retain(|seg| !is_stripped_jpeg_marker(seg.marker()));
+            return jpeg.encoder().bytes().to_vec();
+        }
     }
 
-    if let Ok(mut png) = img_parts::png::Png::from_bytes(Bytes::copy_from_slice(data)) {
-        png.chunks_mut().retain(|chunk| {
-            let tag = chunk.kind();
-            tag != *b"tEXt" && tag != *b"zTXt" && tag != *b"iTXt" && tag != *b"eXIf"
-        });
-        return png.encoder().bytes().to_vec();
+    // PNG: 8-byte signature \x89PNG\r\n\x1a\n
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        if let Ok(mut png) = img_parts::png::Png::from_bytes(Bytes::copy_from_slice(data)) {
+            png.chunks_mut().retain(|chunk| {
+                let tag = chunk.kind();
+                tag != *b"tEXt" && tag != *b"zTXt" && tag != *b"iTXt" && tag != *b"eXIf"
+            });
+            return png.encoder().bytes().to_vec();
+        }
     }
 
-    if let Ok(mut webp) = WebP::from_bytes(Bytes::copy_from_slice(data)) {
-        webp.set_exif(None);
-        webp.set_icc_profile(None);
-        // Remove the XMP chunk (four-CC `XMP `) if present.
-        webp.chunks_mut()
-            .retain(|chunk| chunk.id() != img_parts::webp::CHUNK_XMP);
-        return webp.encoder().bytes().to_vec();
+    // WebP: RIFF....WEBP
+    if data.len() >= 12 && data.starts_with(b"RIFF") && data[8..12] == *b"WEBP" {
+        if let Ok(mut webp) = WebP::from_bytes(Bytes::copy_from_slice(data)) {
+            webp.set_exif(None);
+            webp.set_icc_profile(None);
+            // Remove the XMP chunk (four-CC `XMP `) if present.
+            webp.chunks_mut()
+                .retain(|chunk| chunk.id() != img_parts::webp::CHUNK_XMP);
+            return webp.encoder().bytes().to_vec();
+        }
     }
 
     data.to_vec()

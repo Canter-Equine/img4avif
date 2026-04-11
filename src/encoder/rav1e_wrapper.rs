@@ -198,16 +198,15 @@ fn encode_8bit(
     alpha_quality: u8,
 ) -> Result<Vec<u8>, Error> {
     use ravif::{EncodedImage, Encoder, Img};
-    use rgb::RGBA8;
+    use rgb::{FromSlice, RGBA8};
 
     img_debug!("encode_8bit: {}×{} RGBA8 → rav1e encode_rgba", width, height);
 
-    let rgba: Vec<RGBA8> = pixels
-        .chunks_exact(4)
-        .map(|c| RGBA8::new(c[0], c[1], c[2], c[3]))
-        .collect();
-
-    let img = Img::new(rgba.as_slice(), width as usize, height as usize);
+    // Cast the packed byte slice to `&[RGBA8]` without copying.  This is safe
+    // because `RGBA8` is `#[repr(C)]` with four `u8` fields (same layout as
+    // four contiguous bytes), so the cast is well-defined.
+    let rgba: &[RGBA8] = pixels.as_rgba();
+    let img = Img::new(rgba, width as usize, height as usize);
 
     Encoder::new()
         .with_quality(f32::from(quality.clamp(1, 100)))
