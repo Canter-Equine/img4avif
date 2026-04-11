@@ -97,8 +97,8 @@ jobs:
             target
           key: test-ubuntu-latest-1.85-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Compile library tests on MSRV
-        run: cargo test --lib --no-run
+      - name: Compile unit and integration tests on MSRV
+        run: cargo test --lib --tests --no-run
 
   # ── Documentation ─────────────────────────────────────────────────────────
   docs:

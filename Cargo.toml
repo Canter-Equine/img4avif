@@ -53,6 +53,7 @@ raw-experimental = ["dep:rawloader"]
 
 [dependencies]
 thiserror = "2.0"
+# Pinned to preserve the declared Rust 1.85 MSRV until a newer compatible patch exists.
 image = { version = "=0.25.9", default-features = false, features = ["jpeg", "png", "webp"] }
 ravif = { version = "0.13", default-features = false, features = ["threading"] }
 rgb = "0.8"
