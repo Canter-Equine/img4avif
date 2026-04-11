@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/img2avif/badge.svg)](https://docs.rs/img2avif)
 [![CI](https://github.com/Canter-Equine/img2avif/actions/workflows/ci.yml/badge.svg)](https://github.com/Canter-Equine/img2avif/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![MSRV: 1.70](https://img.shields.io/badge/MSRV-1.70-blue.svg)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
+[![MSRV: 1.85](https://img.shields.io/badge/MSRV-1.85-blue.svg)](https://blog.rust-lang.org/2025/01/23/Rust-1.85.0.html)
 
 A fast, memory-safe Rust library that converts **JPEG, PNG, WebP, and HEIC/HEIF**
 images to **AVIF** using the pure-Rust `rav1e` AV1 encoder. It also supports
@@ -43,7 +43,7 @@ img2avif = "0.1"
 
 ### Minimum supported Rust version (MSRV)
 
-`img2avif` requires **Rust 1.70** or later.  The MSRV is enforced in
+`img2avif` requires **Rust 1.85** or later.  The MSRV is enforced in
 `Cargo.toml` and tested in CI.
 
 ---
