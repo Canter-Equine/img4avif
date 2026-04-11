@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ── Lint ──────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: lint-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (all targets, all features)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # ── Build & test on all three platforms ──────────────────────────────────
+  test:
+    name: Test (${{ matrix.os }} / Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+        include:
+          # Verify MSRV on Linux only (saves CI minutes).
+          - os: ubuntu-latest
+            rust: "1.70"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: test-${{ matrix.os }}-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build (default features)
+        run: cargo build --release
+
+      - name: Run tests (default features)
+        run: cargo test
+
+      - name: Run memory guard smoke test
+        run: cargo test --test memory_stress memory_guard_smoke_test
+
+  # ── Documentation ─────────────────────────────────────────────────────────
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo doc (no private items, deny warnings)
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
+
+  # ── Binary size check (Linux only) ───────────────────────────────────────
+  binary-size:
+    name: Binary size check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Check .rlib size < 5 MB
+        run: |
+          RLIB=$(find target/release -name "libimg2avif*.rlib" | head -1)
+          if [ -z "$RLIB" ]; then
+            echo "No .rlib found — skipping size check"
+            exit 0
+          fi
+          SIZE=$(stat -c%s "$RLIB")
+          echo "rlib size: $((SIZE / 1024)) KB"
+          if [ "$SIZE" -gt $((5 * 1024 * 1024)) ]; then
+            echo "ERROR: rlib $((SIZE / 1024)) KB exceeds 5 MB limit"
+            exit 1
+          fi
+
+  # ── Security audit ───────────────────────────────────────────────────────
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: cargo audit
+        run: cargo audit
+
+  # ── Memory stress test (Linux, slow) ─────────────────────────────────────
+  memory-stress:
+    name: 50 MP memory stress test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run 50 MP stress test
+        run: cargo test --test memory_stress -- --ignored --nocapture

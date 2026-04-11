@@ -1,0 +1,52 @@
+[package]
+name = "img2avif"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+authors = ["Canter-Equine"]
+description = "Serverless-optimized image conversion: JPEG/PNG/WebP → AVIF (pure Rust, Lambda-ready)"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["avif", "image", "convert", "lambda", "serverless"]
+categories = ["multimedia::images", "encoding"]
+repository = "https://github.com/Canter-Equine/img2avif"
+documentation = "https://docs.rs/img2avif"
+exclude = ["/tests/fixtures", "/benches", "/fuzz"]
+
+[features]
+default = []
+
+# ⚠️  EXPERIMENTAL: HEIC support requires the libheif C library at link time.
+# This violates the "no C dependencies" constraint and is unsuitable for stock
+# Lambda layers.  Enable only when you control the runtime environment.
+heic-experimental = ["dep:libheif-rs"]
+
+# ⚠️  EXPERIMENTAL: RAW camera format support (pure Rust via rawloader).
+# API and output quality are not production-ready.
+raw-experimental = ["dep:rawloader"]
+
+[dependencies]
+thiserror = "2.0"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+ravif = { version = "0.13", default-features = false, features = ["threading"] }
+rgb = "0.8"
+img-parts = "0.3"
+
+# Experimental optional dependencies (see feature docs above).
+libheif-rs = { version = "1.0", optional = true }
+rawloader = { version = "0.37", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+image = { version = "0.25", features = ["jpeg", "png"] }
+
+[profile.release]
+opt-level = "z"      # minimise binary size
+lto = true           # link-time optimisation
+codegen-units = 1    # maximise LTO effectiveness
+strip = true         # strip debug symbols from binary
+panic = "abort"      # smaller binary, no unwinding overhead
+
+[[bench]]
+name = "lambda_bench"
+harness = false
