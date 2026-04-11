@@ -1,19 +1,9 @@
 //! # img2avif
 //!
-//! A high-performance, memory-safe Rust library that converts images from
-//! **JPEG, PNG, and WebP** into the **AVIF** format using the pure-Rust
-//! `rav1e` AV1 encoder.
-//!
-//! Designed for cost-sensitive, high-volume **serverless workloads** (AWS
-//! Lambda / Linux `x86_64` & `aarch64`) with built-in safeguards against memory
-//! exhaustion and malformed-input attacks.
-//!
-//! ## Feature flags
-//!
-//! | Flag | Default | Description |
-//! |------|---------|-------------|
-//! | `heic-experimental` | off | HEIC/HEIF decoding via `libheif` (**requires C library**) |
-//! | `raw-experimental`  | off | Camera RAW decoding via `rawloader` (pure Rust, unstable API) |
+//! Converts JPEG, PNG, and WebP images to AVIF using the pure-Rust `rav1e`
+//! AV1 encoder.  Designed for serverless workloads (AWS Lambda `x86_64` /
+//! `aarch64`) with built-in guards against memory exhaustion and malformed
+//! input.
 //!
 //! ## Quick start
 //!
@@ -26,7 +16,7 @@
 //! let config = Config::default()
 //!     .quality(85)
 //!     .speed(6)
-//!     .strip_exif(true); // already the default
+//!     .strip_exif(true); // default
 //!
 //! let converter = Converter::new(config)?;
 //! let avif_bytes = converter.convert(&jpeg_bytes)?;
@@ -36,25 +26,24 @@
 //! # }
 //! ```
 //!
-//! ## EXIF / metadata handling
+//! ## Security model
 //!
-//! By default **all EXIF, IPTC, and XMP metadata is stripped** from the
-//! output to minimise file size (important for cost-sensitive Lambda
-//! workloads).  Pass [`Config::strip_exif`]`(false)` to preserve metadata —
-//! but be aware this increases output size and per-invocation cost.
+//! - **Input-size cap** ([`Config::max_input_bytes`], default 100 MiB) —
+//!   rejected before any bytes are decompressed.
+//! - **Decompression-bomb protection** ([`Config::max_pixels`]) — the decoder
+//!   allocation budget is derived from `max_pixels * 4 + 64 MiB`; an image
+//!   that claims huge dimensions is rejected before the pixel buffer lands in
+//!   RAM.
+//! - **RSS guard** ([`Config::memory_limit_bytes`], default 150 MiB) — checked
+//!   before and after decode; breaches return [`Error::MemoryExceeded`].
+//! - **No unsafe code** — enforced by `#![forbid(unsafe_code)]`.
 //!
-//! ## Memory safety
+//! ## Feature flags
 //!
-//! A [`MemoryGuard`] is checked before and after decoding.  If peak RSS
-//! exceeds [`Config::memory_limit_bytes`] (default 150 MB) the conversion
-//! is aborted and [`Error::MemoryExceeded`] is returned immediately.
-//! Memory checking is available on Linux and macOS; on other platforms the
-//! check is a no-op (fail-open).
-//!
-//! ## No unsafe code
-//!
-//! `img2avif` does not contain any `unsafe` code.  All dependencies that
-//! use `unsafe` (e.g. `rav1e`) are vendored through well-audited crates.
+//! | Flag | Default | Notes |
+//! |------|---------|-------|
+//! | `heic-experimental` | off | Requires the `libheif` C library |
+//! | `raw-experimental`  | off | Pure Rust via `rawloader`, unstable API |
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -62,11 +51,11 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 
-/// Configuration for the AVIF converter — see [`Config`].
+/// Configuration — see [`Config`].
 pub mod config;
 /// Error types — see [`Error`].
 pub mod error;
-/// Runtime memory guard — see [`MemoryGuard`].
+/// RSS memory guard — see [`MemoryGuard`].
 pub mod memory_guard;
 /// EXIF / metadata stripping utilities.
 pub mod metadata;
@@ -119,52 +108,47 @@ impl Converter {
     ///
     /// | Variant | Cause |
     /// |---------|-------|
-    /// | [`Error::Decode`] | Input bytes could not be decoded |
+    /// | [`Error::Decode`] | Input could not be decoded (includes oversized input) |
     /// | [`Error::InputTooLarge`] | Pixel count exceeds [`Config::max_pixels`] |
     /// | [`Error::MemoryExceeded`] | Peak RSS exceeded [`Config::memory_limit_bytes`] |
     /// | [`Error::Encode`] | AVIF encoding failed |
     /// | [`Error::UnsupportedFormat`] | Format not enabled at compile time |
     pub fn convert(&self, input: &[u8]) -> Result<Vec<u8>, Error> {
         if !self.config.strip_exif {
-            // Use eprintln so callers on Lambda can see it in CloudWatch.
             eprintln!(
                 "img2avif: preserve_metadata is enabled — \
                  metadata retention increases output size and Lambda cost"
             );
         }
 
-        let guard = MemoryGuard::new(self.config.memory_limit_bytes);
+        // Reject oversized uploads before touching any bytes.
+        if input.len() as u64 > self.config.max_input_bytes {
+            return Err(Error::Decode(format!(
+                "input too large: {} bytes exceeds the {}-byte limit",
+                input.len(),
+                self.config.max_input_bytes,
+            )));
+        }
 
-        // Baseline memory check before any allocation.
+        let guard = MemoryGuard::new(self.config.memory_limit_bytes);
         guard.check()?;
 
-        // Strip or preserve metadata on the raw input bytes so the decoder
-        // never processes potentially malformed metadata chunks.
+        // Strip metadata before decode so the image library never sees
+        // potentially malformed APP / ancillary chunks.
         let processed: Vec<u8> = if self.config.strip_exif {
             metadata::strip_metadata(input)
         } else {
             input.to_vec()
         };
 
-        // Decode to raw RGBA8 pixels.
-        let raw = decoder::decode(&processed)?;
+        // Decode to RGBA8.  The decoder enforces max_pixels internally to
+        // prevent decompression-bomb attacks.
+        let raw = decoder::decode(&processed, self.config.max_pixels)?;
 
-        // Enforce pixel-count limit before the post-decode RSS check.
-        let pixel_count = u64::from(raw.width) * u64::from(raw.height);
-        if pixel_count > self.config.max_pixels {
-            return Err(Error::InputTooLarge {
-                width: raw.width,
-                height: raw.height,
-                max_pixels: self.config.max_pixels,
-            });
-        }
-
-        // Post-decode memory check: decode buffer is now live.
+        // Post-decode RSS check: the pixel buffer is now live.
         guard.check()?;
 
-        // Encode to AVIF.
         let avif = encoder::encode_avif(&raw, self.config.quality, self.config.speed)?;
-
         Ok(avif)
     }
 
