@@ -116,7 +116,7 @@ fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Erro
     }
 
     // Cap the decoder's allocation budget to prevent decompression bombs.
-    // 16-bit RGBA8 needs up to `max_pixels * 8` bytes; we add 64 MiB headroom.
+    // 16-bit RGBA needs up to `max_pixels * 8` bytes; we add 64 MiB headroom.
     let alloc_cap = max_pixels
         .saturating_mul(8)
         .saturating_add(64 * 1024 * 1024);
