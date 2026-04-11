@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.70"
 authors = ["Canter-Equine"]
-description = "Serverless-optimized image conversion: JPEG/PNG/WebP → AVIF (pure Rust, Lambda-ready)"
+description = "Serverless-optimized image conversion: JPEG/PNG/WebP/HEIC → AVIF with HDR10 input support (pure Rust, Lambda-ready)"
 license = "Apache-2.0"
 readme = "README.md"
-keywords = ["avif", "image", "convert", "lambda", "serverless"]
+keywords = ["avif", "image", "convert", "heic", "hdr"]
 categories = ["multimedia::images", "encoding"]
 repository = "https://github.com/Canter-Equine/img2avif"
 documentation = "https://docs.rs/img2avif"
@@ -16,9 +16,13 @@ exclude = ["/tests/fixtures", "/benches", "/fuzz"]
 [features]
 default = []
 
-# ⚠️  EXPERIMENTAL: HEIC support requires the libheif C library at link time.
+# ⚠️  EXPERIMENTAL: HEIC/HEIF support requires the libheif C library at link time.
 # This violates the "no C dependencies" constraint and is unsuitable for stock
 # Lambda layers.  Enable only when you control the runtime environment.
+#
+# ⚠️  LICENSE NOTE: libheif is LGPL-licensed.  Linking it makes your final
+# binary LGPL-encumbered.  Review your distribution obligations before enabling
+# this feature in a commercial product.
 heic-experimental = ["dep:libheif-rs"]
 
 # ⚠️  EXPERIMENTAL: RAW camera format support (pure Rust via rawloader).

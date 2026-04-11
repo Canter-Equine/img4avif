@@ -1,9 +1,9 @@
 //! # img2avif
 //!
-//! Converts JPEG, PNG, and WebP images to AVIF using the pure-Rust `rav1e`
-//! AV1 encoder.  Designed for serverless workloads (AWS Lambda `x86_64` /
-//! `aarch64`) with built-in guards against memory exhaustion and malformed
-//! input.
+//! Converts **JPEG, PNG, WebP, and HEIC/HEIF** images to AVIF using the
+//! pure-Rust `rav1e` AV1 encoder.  Designed for serverless workloads (AWS
+//! Lambda `x86_64` / `aarch64`) with built-in guards against memory
+//! exhaustion and malformed input.
 //!
 //! ## Quick start
 //!
@@ -26,6 +26,25 @@
 //! # }
 //! ```
 //!
+//! ## Supported input formats
+//!
+//! | Format | File extensions | Feature flag | Notes |
+//! |--------|----------------|-------------|-------|
+//! | JPEG | `.jpg`, `.jpeg` | *(always on)* | 8-bit, greyscale or YCbCr |
+//! | PNG | `.png` | *(always on)* | 8-bit and 16-bit (HDR10) |
+//! | WebP | `.webp` | *(always on)* | lossy and lossless |
+//! | HEIC / HEIF | `.heic`, `.heif` | `heic-experimental` | Requires `libheif` C library |
+//!
+//! ## HDR10
+//!
+//! 16-bit PNG files commonly used to distribute HDR10 content are accepted
+//! natively: the `image` crate scales each channel from 16 to 8 bits before
+//! encoding.  The AVIF output is an SDR file; full HDR10 (BT.2020 + PQ) AVIF
+//! output requires a future encoder upgrade.
+//!
+//! HEIC files that carry HDR10 colour profiles are decoded by `libheif` when
+//! the `heic-experimental` feature is enabled.
+//!
 //! ## Security model
 //!
 //! - **Input-size cap** ([`Config::max_input_bytes`], default 100 MiB) —
@@ -34,7 +53,7 @@
 //!   allocation budget is derived from `max_pixels * 4 + 64 MiB`; an image
 //!   that claims huge dimensions is rejected before the pixel buffer lands in
 //!   RAM.
-//! - **RSS guard** ([`Config::memory_limit_bytes`], default 150 MiB) — checked
+//! - **RSS guard** ([`Config::memory_limit_bytes`], default 512 MiB) — checked
 //!   before and after decode; breaches return [`Error::MemoryExceeded`].
 //! - **No unsafe code** — enforced by `#![forbid(unsafe_code)]`.
 //!
@@ -42,8 +61,8 @@
 //!
 //! | Flag | Default | Notes |
 //! |------|---------|-------|
-//! | `heic-experimental` | off | Requires the `libheif` C library |
-//! | `raw-experimental`  | off | Pure Rust via `rawloader`, unstable API |
+//! | `heic-experimental` | off | HEIC/HEIF support via the `libheif` C library. Linking `libheif` makes the binary LGPL-encumbered. |
+//! | `raw-experimental`  | off | Pure Rust RAW camera format support via `rawloader`. Unstable API. |
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -100,7 +119,17 @@ impl Converter {
         Ok(Self { config })
     }
 
-    /// Convert raw image bytes (JPEG, PNG, or WebP) to AVIF.
+    /// Convert raw image bytes to AVIF.
+    ///
+    /// The input format is detected automatically from magic bytes; the
+    /// following formats are supported:
+    ///
+    /// | Format | Always available? |
+    /// |--------|------------------|
+    /// | JPEG / JPG | ✓ |
+    /// | PNG (8-bit and 16-bit / HDR10) | ✓ |
+    /// | WebP | ✓ |
+    /// | HEIC / HEIF | `heic-experimental` feature only |
     ///
     /// Returns the encoded AVIF file as a `Vec<u8>`.
     ///
@@ -112,7 +141,7 @@ impl Converter {
     /// | [`Error::InputTooLarge`] | Pixel count exceeds [`Config::max_pixels`] |
     /// | [`Error::MemoryExceeded`] | Peak RSS exceeded [`Config::memory_limit_bytes`] |
     /// | [`Error::Encode`] | AVIF encoding failed |
-    /// | [`Error::UnsupportedFormat`] | Format not enabled at compile time |
+    /// | [`Error::UnsupportedFormat`] | Format not supported in this build (e.g., HEIC without `heic-experimental`) |
     pub fn convert(&self, input: &[u8]) -> Result<Vec<u8>, Error> {
         if !self.config.strip_exif {
             eprintln!(

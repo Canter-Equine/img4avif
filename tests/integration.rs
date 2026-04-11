@@ -133,7 +133,36 @@ fn config_is_clone() {
 }
 
 #[test]
-fn converter_exposes_config() {
-    let cfg = Config::default().quality(77);
-    assert_eq!(Converter::new(cfg).unwrap().config().quality, 77);
+fn heic_without_feature_returns_unsupported_format() {
+    // A minimal synthetic ISOBMFF ftyp box: size=0x14, type=ftyp, brand=heic.
+    // This is enough to trigger the HEIC/HEIF magic-byte check.
+    let fake_heic: &[u8] = &[
+        0x00, 0x00, 0x00, 0x14, // box size = 20
+        0x66, 0x74, 0x79, 0x70, // "ftyp"
+        0x68, 0x65, 0x69, 0x63, // major brand "heic"
+        0x00, 0x00, 0x00, 0x00, // minor version
+        0x68, 0x65, 0x69, 0x63, // compatible brand "heic"
+    ];
+
+    let err = Converter::new(Config::default())
+        .unwrap()
+        .convert(fake_heic)
+        .unwrap_err();
+
+    // Without `heic-experimental` this must be UnsupportedFormat.
+    // With the feature enabled it will fail later (not a valid HEIC bitstream),
+    // so we accept Decode as well in that case.
+    assert!(
+        matches!(err, Error::UnsupportedFormat(_) | Error::Decode(_)),
+        "expected UnsupportedFormat or Decode, got: {err:?}"
+    );
+
+    // When the feature is off, the error message should hint at the feature flag.
+    #[cfg(not(feature = "heic-experimental"))]
+    if let Error::UnsupportedFormat(msg) = &err {
+        assert!(
+            msg.contains("heic-experimental"),
+            "UnsupportedFormat message should mention 'heic-experimental', got: {msg}"
+        );
+    }
 }

@@ -6,17 +6,19 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MSRV: 1.70](https://img.shields.io/badge/MSRV-1.70-blue.svg)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
 
-A high-performance, memory-safe Rust library that converts **JPEG, PNG, and
-WebP** images to **AVIF** format using the pure-Rust `rav1e` AV1 encoder.
+A high-performance, memory-safe Rust library that converts **JPEG, PNG, WebP,
+and HEIC/HEIF** images to **AVIF** format using the pure-Rust `rav1e` AV1
+encoder.  16-bit (HDR10) PNG inputs are accepted natively.
 
 Engineered specifically for **cost-sensitive, high-volume serverless workloads**
 on AWS Lambda (Linux x86_64 / aarch64) with:
 
 - **Zero unsafe code** in library source
-- **Built-in memory guard** – aborts at 150 MB peak RSS (configurable)
-- **Automatic EXIF stripping** – reduces output size and Lambda bandwidth cost
-- **Pure Rust core** – no C library dependencies in the default build
+- **Built-in memory guard** — aborts at configurable peak RSS (default 512 MiB)
+- **Automatic EXIF stripping** — reduces output size and Lambda bandwidth cost
+- **Pure Rust core** — no C library dependencies in the default build
 - **Sub-800 ms cold-start** on a 1769 MB Lambda instance
+- **Up to 50 MP / 50 MB** input supported with default settings
 
 ---
 
@@ -24,14 +26,16 @@ on AWS Lambda (Linux x86_64 / aarch64) with:
 
 1. [Installation](#installation)
 2. [Quick start](#quick-start)
-3. [Configuration reference](#configuration-reference)
-4. [EXIF / metadata handling](#exif--metadata-handling)
-5. [Memory guard](#memory-guard)
-6. [Feature flags](#feature-flags)
-7. [Performance benchmarks](#performance-benchmarks)
-8. [AWS Lambda deployment](#aws-lambda-deployment)
-9. [Security](#security)
-10. [License](#license)
+3. [Supported input formats](#supported-input-formats)
+4. [HDR10 support](#hdr10-support)
+5. [Configuration reference](#configuration-reference)
+6. [EXIF / metadata handling](#exif--metadata-handling)
+7. [Memory guard](#memory-guard)
+8. [Feature flags](#feature-flags)
+9. [Performance benchmarks](#performance-benchmarks)
+10. [AWS Lambda deployment](#aws-lambda-deployment)
+11. [Security](#security)
+12. [License](#license)
 
 ---
 
@@ -77,9 +81,48 @@ fn main() -> Result<(), img2avif::Error> {
 use img2avif::{Config, Converter};
 
 let converter = Converter::new(Config::lambda_cost_optimized())?;
-// quality=75, speed=10, strip_exif=true
+// quality=75, speed=10, strip_exif=true, max_input_bytes=50 MiB
 let avif = converter.convert(&input_bytes)?;
 ```
+
+---
+
+## Supported input formats
+
+| Format | Extensions | Feature flag | Notes |
+|--------|-----------|-------------|-------|
+| JPEG | `.jpg`, `.jpeg` | *(always on)* | 8-bit YCbCr or greyscale |
+| PNG | `.png` | *(always on)* | 8-bit and **16-bit (HDR10)** |
+| WebP | `.webp` | *(always on)* | lossy and lossless |
+| HEIC / HEIF | `.heic`, `.heif` | `heic-experimental` | Requires `libheif` C library |
+
+Format detection is **magic-byte based** — file extensions are not trusted.
+
+---
+
+## HDR10 support
+
+### 16-bit PNG inputs
+
+16-bit PNG files (a common HDR10 distribution format) are accepted natively.
+The `image` crate decodes each 16-bit channel and scales it to 8 bits before
+the AVIF encoder receives the pixel data.  The resulting AVIF is an SDR file.
+
+Full HDR10 round-trip output (BT.2020 primaries + PQ / ST.2084 transfer
+function, 10-bit depth) requires a future encoder backend upgrade.
+
+### HEIC with HDR10 metadata
+
+Many smartphone cameras produce HDR10-tagged HEIC files.  Enable the
+`heic-experimental` Cargo feature to decode these:
+
+```toml
+[dependencies]
+img2avif = { version = "0.1", features = ["heic-experimental"] }
+```
+
+> ⚠️  Requires `libheif` installed on the system at link time.  See
+> [Feature flags](#feature-flags) for details and licensing implications.
 
 ---
 
@@ -90,8 +133,9 @@ let avif = converter.convert(&input_bytes)?;
 | `quality` | `u8` | `80` | Encoding quality (1 – 100). Higher = better, larger. |
 | `speed` | `u8` | `6` | Encoder speed (1 – 10). Higher = faster, slightly larger. |
 | `strip_exif` | `bool` | `true` | Strip all EXIF/IPTC/XMP metadata (recommended). |
-| `max_pixels` | `u64` | `268_435_456` | Max pixel count (16384 × 16384). |
-| `memory_limit_bytes` | `u64` | `157_286_400` | Peak RSS budget (150 MB). |
+| `max_input_bytes` | `u64` | `104_857_600` (100 MiB) | Maximum raw input file size. |
+| `max_pixels` | `u64` | `268_435_456` (≈ 268 MP) | Max decoded pixel count (width × height). |
+| `memory_limit_bytes` | `u64` | `536_870_912` (512 MiB) | Peak RSS budget. |
 
 All setter methods return `Self` for chaining:
 
@@ -100,7 +144,7 @@ let config = Config::default()
     .quality(90)
     .speed(8)
     .max_pixels(10_000 * 10_000)
-    .memory_limit_bytes(100 * 1024 * 1024);
+    .memory_limit_bytes(512 * 1024 * 1024);
 ```
 
 ---
@@ -127,8 +171,11 @@ A warning is printed to `stderr` at conversion time when `strip_exif = false`.
 ## Memory guard
 
 The [`MemoryGuard`] checks RSS before and after decoding.  If peak RSS
-exceeds `memory_limit_bytes` (default **150 MB**) conversion is aborted with
+exceeds `memory_limit_bytes` (default **512 MiB**) conversion is aborted with
 [`Error::MemoryExceeded`].
+
+The 512 MiB default comfortably handles 50 MP RGBA8 images (pixel buffer
+alone is ~191 MiB) plus encoder working memory.
 
 ```rust
 use img2avif::{Config, Error};
@@ -164,8 +211,18 @@ match converter.convert(&huge_image) {
 > ecosystem is not yet production-ready (as of Rust 1.70 / April 2024).  The
 > `heic-experimental` flag introduces a C dependency unsuitable for stock
 > Lambda layers.
+>
+> ⚠️  **LGPL notice:** the underlying `libheif` C library is
+> [LGPL-licensed](https://github.com/strukturag/libheif/blob/main/COPYING).
+> Linking it makes your final binary LGPL-encumbered.  Review your
+> distribution obligations before enabling this feature in a commercial
+> product.  See [NOTICE](NOTICE) for full attribution details.
 
 ```toml
+# Enable experimental HEIC/HEIF support (requires libheif C library):
+[dependencies]
+img2avif = { version = "0.1", features = ["heic-experimental"] }
+
 # Enable experimental RAW support (pure Rust, no C):
 [dependencies]
 img2avif = { version = "0.1", features = ["raw-experimental"] }
@@ -251,10 +308,14 @@ At $0.0000166667 per GB-second (x86_64, `us-east-1`):
 - **Zero unsafe code** in `img2avif` source (enforced by `#![forbid(unsafe_code)]`)
 - All parsing errors return `Result<_, Error>` — the library **never panics** on malformed input
 - Dependencies audited with `cargo audit` in CI
-- No GPL / LGPL transitive dependencies
+- No GPL transitive dependencies in the default build (see LGPL note for `heic-experimental`)
 
 ---
 
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
+This product includes third-party components whose notices are listed in
+[NOTICE](NOTICE).  The most notable is `ravif` (BSD-3-Clause), which provides
+the AV1 encoder backend.
