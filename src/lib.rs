@@ -121,6 +121,8 @@ pub mod metadata;
 /// Output resolution control and image resizing — see [`OutputResolution`].
 pub mod resize;
 
+use std::collections::HashMap;
+
 pub(crate) mod decoder;
 pub(crate) mod encoder;
 pub(crate) mod logging;
@@ -307,7 +309,20 @@ impl Converter {
         let guard = MemoryGuard::new(self.config.memory_limit_bytes);
 
         let mut outputs = Vec::with_capacity(resolutions.len());
+        let mut dedup_cache: HashMap<OutputResolution, Vec<u8>> = HashMap::new();
         for &resolution in resolutions {
+            if let Some(existing) = dedup_cache.get(&resolution) {
+                img_info!(
+                    "convert_multi: {:?} already encoded — reusing cached output",
+                    resolution
+                );
+                outputs.push(ConversionOutput {
+                    resolution,
+                    data: existing.clone(),
+                });
+                continue;
+            }
+
             #[allow(clippy::question_mark)] // explicit if-let preserves the log call
             if let Err(e) = guard.check() {
                 img_error!(
@@ -335,6 +350,7 @@ impl Converter {
                     return Err(e);
                 }
             };
+            dedup_cache.insert(resolution, data.clone());
             img_info!("convert_multi: {:?} → {} bytes", resolution, data.len(),);
             outputs.push(ConversionOutput { resolution, data });
         }
@@ -358,10 +374,6 @@ impl Converter {
         if !self.config.strip_exif {
             img_warn!(
                 "validate_and_decode: strip_exif=false — metadata retention increases output size"
-            );
-            eprintln!(
-                "img2avif: preserve_metadata is enabled — \
-                 metadata retention increases output size and Lambda cost"
             );
         }
 
@@ -620,6 +632,26 @@ mod tests {
                 out.resolution
             );
         }
+    }
+
+    #[test]
+    fn convert_multi_deduplicates_repeated_resolutions() {
+        let png = make_minimal_png(12, 8);
+        let config = Config::default().output_resolutions(vec![
+            OutputResolution::Original,
+            OutputResolution::Width1080,
+            OutputResolution::Width1080,
+            OutputResolution::Original,
+        ]);
+        let converter = Converter::new(config).unwrap();
+        let outputs = converter.convert_multi(&png).expect("convert_multi failed");
+        assert_eq!(outputs.len(), 4);
+        assert_eq!(outputs[0].resolution, OutputResolution::Original);
+        assert_eq!(outputs[1].resolution, OutputResolution::Width1080);
+        assert_eq!(outputs[2].resolution, OutputResolution::Width1080);
+        assert_eq!(outputs[3].resolution, OutputResolution::Original);
+        assert_eq!(outputs[1].data, outputs[2].data);
+        assert_eq!(outputs[0].data, outputs[3].data);
     }
 
     #[test]
