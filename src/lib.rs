@@ -304,7 +304,7 @@ impl Converter {
 
         let mut outputs = Vec::with_capacity(resolutions.len());
         for &resolution in resolutions {
-            let resized = resize::resize_raw_image(raw.clone(), resolution);
+            let resized = resize::resize_raw_image(raw.clone(), resolution)?;
             let data = match self.encode_raw(&resized) {
                 Ok(d) => d,
                 Err(e) => {
@@ -436,7 +436,7 @@ impl Converter {
         use logging::img_debug;
         let raw = self.validate_and_decode(input)?;
         img_debug!("single_convert: applying resolution {:?}", resolution);
-        let resized = resize::resize_raw_image(raw, resolution);
+        let resized = resize::resize_raw_image(raw, resolution)?;
         self.encode_raw(&resized)
     }
 

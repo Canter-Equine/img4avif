@@ -38,7 +38,7 @@ use crate::Error;
 ///
 /// The 8-bit variant is produced by JPEG, WebP, 8-bit PNG, and HEIC decoders.
 /// The 16-bit variant is produced by 16-bit PNG and leads to 10-bit AVIF output.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Pixels {
     /// Standard 8-bit RGBA pixels (`width × height × 4` bytes).
     Rgba8(Vec<u8>),
@@ -50,7 +50,7 @@ pub enum Pixels {
 }
 
 /// A decoded image ready for AVIF encoding.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RawImage {
     /// Width in pixels.
     pub width: u32,
@@ -117,7 +117,7 @@ fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Erro
     // Reject formats we don't support before touching the pixel data.
     match reader.format() {
         Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP) => {
-            img_debug!("decode: detected format {:?}", reader.format().unwrap());
+            img_debug!("decode: detected format {:?}", reader.format());
         }
         Some(other) => {
             img_error!("decode: unsupported format {:?}", other);
