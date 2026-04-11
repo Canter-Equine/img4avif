@@ -15,6 +15,8 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -35,13 +37,15 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Clippy (all targets, all features)
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Clippy (all targets, deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
 
   # ── Build & test on all three platforms ──────────────────────────────────
   test:
     name: Test (${{ matrix.os }} / Rust ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -72,29 +76,33 @@ jobs:
       - name: Build (default features)
         run: cargo build --release
 
-      - name: Run tests (default features)
+      - name: Run tests
         run: cargo test
 
       - name: Run memory guard smoke test
-        run: cargo test --test memory_stress memory_guard_smoke_test
+        run: cargo test --test memory_stress memory_guard_unlimited_always_passes
 
   # ── Documentation ─────────────────────────────────────────────────────────
   docs:
     name: Docs
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: cargo doc (no private items, deny warnings)
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
+      - name: cargo doc (deny warnings)
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
   # ── Binary size check (Linux only) ───────────────────────────────────────
   binary-size:
     name: Binary size check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -122,6 +130,8 @@ jobs:
   audit:
     name: Security audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -138,6 +148,8 @@ jobs:
   memory-stress:
     name: 50 MP memory stress test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 

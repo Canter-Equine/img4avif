@@ -14,7 +14,7 @@ use crate::{decoder::RawImage, Error};
 ///
 /// Returns [`Error::Encode`] if `rav1e` fails to produce a valid bitstream.
 pub fn encode_avif(image: &RawImage, quality: u8, speed: u8) -> Result<Vec<u8>, Error> {
-    use ravif::{Encoder, Img};
+    use ravif::{EncodedImage, Encoder, Img};
     use rgb::RGBA8;
 
     // Convert flat RGBA bytes to a slice of `rgb::RGBA8` structs.
@@ -34,11 +34,11 @@ pub fn encode_avif(image: &RawImage, quality: u8, speed: u8) -> Result<Vec<u8>, 
     let ravif_quality = f32::from(quality.clamp(1, 100));
     let ravif_speed = speed.clamp(1, 10);
 
-    let result = Encoder::new()
+    let EncodedImage { avif_file, .. } = Encoder::new()
         .with_quality(ravif_quality)
         .with_speed(ravif_speed)
         .encode_rgba(img)
         .map_err(|e| Error::Encode(e.to_string()))?;
 
-    Ok(result.avif_file.clone())
+    Ok(avif_file)
 }
