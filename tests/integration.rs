@@ -24,8 +24,11 @@ fn make_jpeg(width: u32, height: u32) -> Vec<u8> {
 fn make_webp(width: u32, height: u32) -> Vec<u8> {
     let img = image::RgbaImage::from_pixel(width, height, image::Rgba([100u8, 150, 200, 255]));
     let mut buf = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::WebP)
-        .unwrap();
+    img.write_to(
+        &mut std::io::Cursor::new(&mut buf),
+        image::ImageFormat::WebP,
+    )
+    .unwrap();
     buf
 }
 
@@ -352,8 +355,10 @@ fn png_16bit_with_resize_to_2560() {
 fn quality_zero_via_direct_field_still_encodes() {
     // Config::quality = 0 bypasses the builder's clamp(1,100).
     // The encoder must not panic; it re-clamps internally.
-    let mut cfg = Config::default();
-    cfg.quality = 0;
+    let cfg = Config {
+        quality: 0,
+        ..Config::default()
+    };
     let avif = Converter::new(cfg)
         .unwrap()
         .convert(&make_png(8, 8))
@@ -363,8 +368,10 @@ fn quality_zero_via_direct_field_still_encodes() {
 
 #[test]
 fn speed_zero_via_direct_field_still_encodes() {
-    let mut cfg = Config::default();
-    cfg.speed = 0;
+    let cfg = Config {
+        speed: 0,
+        ..Config::default()
+    };
     let avif = Converter::new(cfg)
         .unwrap()
         .convert(&make_png(8, 8))
@@ -374,8 +381,10 @@ fn speed_zero_via_direct_field_still_encodes() {
 
 #[test]
 fn alpha_quality_zero_via_direct_field_still_encodes() {
-    let mut cfg = Config::default();
-    cfg.alpha_quality = 0;
+    let cfg = Config {
+        alpha_quality: 0,
+        ..Config::default()
+    };
     let avif = Converter::new(cfg)
         .unwrap()
         .convert(&make_png(8, 8))
@@ -391,12 +400,10 @@ fn alpha_quality_zero_via_direct_field_still_encodes() {
 fn truncated_webp_returns_error() {
     // RIFF magic bytes but truncated — must not panic.
     let truncated: &[u8] = b"RIFF\x00\x00\x00\x00WEBP";
-    assert!(
-        Converter::new(Config::default())
-            .unwrap()
-            .convert(truncated)
-            .is_err()
-    );
+    assert!(Converter::new(Config::default())
+        .unwrap()
+        .convert(truncated)
+        .is_err());
 }
 
 #[test]
@@ -409,5 +416,8 @@ fn convert_multi_returns_error_on_bad_input() {
         .unwrap()
         .convert_multi(b"garbage")
         .unwrap_err();
-    assert!(matches!(err, Error::Decode(_) | Error::UnsupportedFormat(_)));
+    assert!(matches!(
+        err,
+        Error::Decode(_) | Error::UnsupportedFormat(_)
+    ));
 }

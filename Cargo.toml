@@ -84,3 +84,9 @@ harness = false
 name = "poc"
 # The example uses `image` (a dev-dependency) to generate synthetic test images.
 # It does not require any additional feature flags to run.
+
+[[example]]
+name = "convert_examples"
+# Converts every file in examples/ to AVIF, writing outputs to examples/out/.
+# Valid image formats (JPEG, PNG, WebP) succeed; non-image files (.rs, .mhtml,
+# .avif) fail safely at format-detection with a descriptive error.

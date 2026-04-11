@@ -158,3 +158,47 @@ jobs:
 
       - name: Run 50 MP stress test
         run: cargo test --test memory_stress -- --ignored --nocapture
+
+  # ── Convert example files to AVIF ────────────────────────────────────────
+  convert-examples:
+    name: Convert examples/ to AVIF
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: convert-examples-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run convert_examples (release build for speed)
+        run: cargo run --release --example convert_examples
+
+      - name: Verify outputs were created
+        run: |
+          echo "AVIF outputs in examples/out/:"
+          ls -lh examples/out/
+          # Every .jpg / .png / .webp in examples/ must have a corresponding
+          # .avif in examples/out/.  The check ignores non-image files.
+          failed=0
+          for src in examples/*.jpg examples/*.jpeg examples/*.png examples/*.webp; do
+            [ -f "$src" ] || continue
+            base=$(basename "$src")
+            out="examples/out/${base}.avif"
+            if [ -f "$out" ]; then
+              echo "  ✓  $base  →  $out"
+            else
+              echo "  ✗  MISSING: $out"
+              failed=$((failed + 1))
+            fi
+          done
+          exit "$failed"

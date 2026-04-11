@@ -312,11 +312,7 @@ impl Converter {
                     return Err(e);
                 }
             };
-            img_info!(
-                "convert_multi: {:?} → {} bytes",
-                resolution,
-                data.len(),
-            );
+            img_info!("convert_multi: {:?} → {} bytes", resolution, data.len(),);
             outputs.push(ConversionOutput { resolution, data });
         }
 
@@ -362,7 +358,10 @@ impl Converter {
         let guard = MemoryGuard::new(self.config.memory_limit_bytes);
         #[cfg(feature = "dev-logging")]
         if let Some(rss) = MemoryGuard::current_rss_bytes() {
-            img_debug!("validate_and_decode: pre-decode RSS = {} MiB", rss / (1024 * 1024));
+            img_debug!(
+                "validate_and_decode: pre-decode RSS = {} MiB",
+                rss / (1024 * 1024)
+            );
         }
         #[allow(clippy::question_mark)] // explicit if-let preserves the log call
         if let Err(e) = guard.check() {
@@ -403,11 +402,17 @@ impl Converter {
 
         #[cfg(feature = "dev-logging")]
         if let Some(rss) = MemoryGuard::current_rss_bytes() {
-            img_debug!("validate_and_decode: post-decode RSS = {} MiB", rss / (1024 * 1024));
+            img_debug!(
+                "validate_and_decode: post-decode RSS = {} MiB",
+                rss / (1024 * 1024)
+            );
         }
         #[allow(clippy::question_mark)] // explicit if-let preserves the log call
         if let Err(e) = guard.check() {
-            img_error!("validate_and_decode: post-decode memory guard failed: {}", e);
+            img_error!(
+                "validate_and_decode: post-decode memory guard failed: {}",
+                e
+            );
             return Err(e);
         }
 
@@ -419,10 +424,18 @@ impl Converter {
         use logging::{img_debug, img_error};
         img_debug!(
             "encode_raw: {}×{} q={} aq={} s={}",
-            raw.width, raw.height,
-            self.config.quality, self.config.alpha_quality, self.config.speed,
+            raw.width,
+            raw.height,
+            self.config.quality,
+            self.config.alpha_quality,
+            self.config.speed,
         );
-        match encoder::encode_avif(raw, self.config.quality, self.config.speed, self.config.alpha_quality) {
+        match encoder::encode_avif(
+            raw,
+            self.config.quality,
+            self.config.speed,
+            self.config.alpha_quality,
+        ) {
             Ok(avif) => Ok(avif),
             Err(e) => {
                 img_error!("encode_raw: failed: {}", e);
@@ -511,8 +524,7 @@ mod tests {
     fn convert_original_resolution_unchanged() {
         // A 16×16 image should not be resized when OutputResolution::Original is used.
         let png = make_minimal_png(16, 16);
-        let config = Config::default()
-            .output_resolutions(vec![OutputResolution::Original]);
+        let config = Config::default().output_resolutions(vec![OutputResolution::Original]);
         let converter = Converter::new(config).unwrap();
         let avif = converter.convert(&png).expect("conversion failed");
         assert!(!avif.is_empty());
@@ -522,8 +534,7 @@ mod tests {
     fn convert_width1080_small_image_not_upscaled() {
         // A 4×4 image is well below 1080 px and must not be upscaled.
         let png = make_minimal_png(4, 4);
-        let config = Config::default()
-            .output_resolutions(vec![OutputResolution::Width1080]);
+        let config = Config::default().output_resolutions(vec![OutputResolution::Width1080]);
         let converter = Converter::new(config).unwrap();
         let avif = converter.convert(&png).expect("conversion failed");
         assert!(!avif.is_empty());
@@ -542,8 +553,7 @@ mod tests {
     #[test]
     fn convert_multi_single_resolution() {
         let png = make_minimal_png(4, 4);
-        let config = Config::default()
-            .output_resolutions(vec![OutputResolution::Original]);
+        let config = Config::default().output_resolutions(vec![OutputResolution::Original]);
         let converter = Converter::new(config).unwrap();
         let outputs = converter.convert_multi(&png).expect("convert_multi failed");
         assert_eq!(outputs.len(), 1);
@@ -566,7 +576,11 @@ mod tests {
         assert_eq!(outputs[1].resolution, OutputResolution::Width2560);
         assert_eq!(outputs[2].resolution, OutputResolution::Width1080);
         for out in &outputs {
-            assert!(!out.data.is_empty(), "{:?} produced empty output", out.resolution);
+            assert!(
+                !out.data.is_empty(),
+                "{:?} produced empty output",
+                out.resolution
+            );
         }
     }
 
@@ -588,6 +602,9 @@ mod tests {
         ]);
         let converter = Converter::new(config).unwrap();
         let err = converter.convert_multi(b"not an image").unwrap_err();
-        assert!(matches!(err, Error::Decode(_) | Error::UnsupportedFormat(_)));
+        assert!(matches!(
+            err,
+            Error::Decode(_) | Error::UnsupportedFormat(_)
+        ));
     }
 }
