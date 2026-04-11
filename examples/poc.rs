@@ -289,12 +289,11 @@ fn main() {
         );
 
         for &(suffix, resolution) in pairs {
-            print!("│   {:8}  ", suffix);
-
             match do_convert(&img.data, img.filename, suffix, resolution) {
                 Ok(r) => {
                     println!(
-                        "✓  {} → {} bytes  ({:.1}× compression)  {}ms  → {}",
+                        "│   {:8}  ✓  {} → {} bytes  ({:.1}× compression)  {}ms  → {}",
+                        suffix,
                         r.input_bytes,
                         r.output_bytes,
                         r.input_bytes as f64 / r.output_bytes as f64,
