@@ -29,7 +29,9 @@
 //! `heic-experimental` feature is enabled and the resulting 8-bit pixels are
 //! encoded at the standard quality.
 
+use std::collections::HashSet;
 use std::io::Cursor;
+use std::sync::OnceLock;
 
 use crate::logging::{img_debug, img_error, img_info};
 use crate::Error;
@@ -60,6 +62,32 @@ pub struct RawImage {
     pub pixels: Pixels,
 }
 
+/// Returns a reference to the lazily-initialised set of recognised HEIF/HEIC
+/// major brand codes.
+///
+/// Initialised exactly once on first call via [`OnceLock`].  Subsequent calls
+/// return a reference to the same allocation with no synchronisation overhead.
+/// This pattern replaces a linear scan over a const slice with an O(1) hash
+/// lookup, and avoids repeating the brand list in every call site.
+fn heif_brands() -> &'static HashSet<[u8; 4]> {
+    static BRANDS: OnceLock<HashSet<[u8; 4]>> = OnceLock::new();
+    BRANDS.get_or_init(|| {
+        [
+            *b"heic", // HEVC Main still image
+            *b"heis", // HEVC Main still image (scalable)
+            *b"hevc", // HEVC Main image sequence
+            *b"hevx", // HEVC Main + extensions image sequence
+            *b"heim", // HEVC still image with multi-layer
+            *b"heix", // HEVC still image with extensions
+            *b"mif1", // Image items (including AVIF-as-HEIF)
+            *b"msf1", // Image sequence (including HEIF video)
+            *b"avif", // AVIF still image
+        ]
+        .into_iter()
+        .collect()
+    })
+}
+
 /// Returns `true` when `data` starts with an ISO Base Media file type box
 /// (`ftyp`) **and** the major brand identifies a HEIF/HEIC family container.
 ///
@@ -72,22 +100,16 @@ pub struct RawImage {
 /// ISOBMFF-based formats (MP4, MOV, M4A, CMAF …) also start with `ftyp`.
 /// We therefore also verify that the 4-byte major brand is one of the known
 /// HEIF family brands before routing the file to the HEIF decoder.
-const HEIF_BRANDS: &[[u8; 4]] = &[
-    *b"heic", // HEVC Main still image
-    *b"heis", // HEVC Main still image (scalable)
-    *b"hevc", // HEVC Main image sequence
-    *b"hevx", // HEVC Main + extensions image sequence
-    *b"heim", // HEVC still image with multi-layer
-    *b"heix", // HEVC still image with extensions
-    *b"mif1", // Image items (including AVIF-as-HEIF)
-    *b"msf1", // Image sequence (including HEIF video)
-    *b"avif", // AVIF still image
-];
-
 fn is_heif_ftyp(data: &[u8]) -> bool {
-    data.len() >= 12
-        && data[4..8] == *b"ftyp"
-        && HEIF_BRANDS.iter().any(|brand| *brand == data[8..12])
+    if data.len() < 12 || data[4..8] != *b"ftyp" {
+        return false;
+    }
+    // JUSTIFICATION: data[8..12] is guaranteed to be exactly 4 bytes because
+    // the length check above confirms data.len() >= 12.
+    let brand: [u8; 4] = data[8..12]
+        .try_into()
+        .expect("data[8..12] must be exactly 4 bytes — guaranteed by the len >= 12 check above");
+    heif_brands().contains(&brand)
 }
 
 /// Decode `data` into a [`RawImage`].

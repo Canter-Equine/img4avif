@@ -1,5 +1,33 @@
 use img_parts::{webp::WebP, Bytes, ImageEXIF, ImageICC};
 
+/// Image container format detected from magic bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImageFormat {
+    Jpeg,
+    Png,
+    WebP,
+    Unknown,
+}
+
+/// Detect the image format from the first few magic bytes without allocating.
+///
+/// - JPEG: `FF D8`
+/// - PNG: `89 50 4E 47 0D 0A 1A 0A`
+/// - WebP: `52 49 46 46 … 57 45 42 50` (`RIFF….WEBP`)
+fn detect_format(data: &[u8]) -> ImageFormat {
+    if data.starts_with(&[0xFF, 0xD8]) {
+        return ImageFormat::Jpeg;
+    }
+    if data.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return ImageFormat::Png;
+    }
+    // WebP: 4-byte RIFF tag + 4-byte size + 4-byte "WEBP" form type.
+    if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
+        return ImageFormat::WebP;
+    }
+    ImageFormat::Unknown
+}
+
 /// Strip EXIF, IPTC, and XMP metadata from `data`.
 ///
 /// Supported container formats:
@@ -13,36 +41,43 @@ use img_parts::{webp::WebP, Bytes, ImageEXIF, ImageICC};
 /// deciding whether an unrecognised format is acceptable — for example,
 /// returning [`crate::Error::UnsupportedFormat`] when `strip_exif = true`
 /// was requested.
+///
+/// The format is detected from magic bytes before any allocation occurs, so
+/// `Bytes::copy_from_slice` is called **at most once** per invocation.
 pub fn strip_metadata(data: &[u8]) -> Option<Vec<u8>> {
-    if let Ok(mut jpeg) = img_parts::jpeg::Jpeg::from_bytes(Bytes::copy_from_slice(data)) {
-        jpeg.set_exif(None);
-        jpeg.set_icc_profile(None);
-        jpeg.segments_mut()
-            .retain(|seg| !is_stripped_jpeg_marker(seg.marker()));
-        return Some(jpeg.encoder().bytes().to_vec());
+    match detect_format(data) {
+        ImageFormat::Jpeg => {
+            let mut jpeg =
+                img_parts::jpeg::Jpeg::from_bytes(Bytes::copy_from_slice(data)).ok()?;
+            jpeg.set_exif(None);
+            jpeg.set_icc_profile(None);
+            jpeg.segments_mut()
+                .retain(|seg| !is_stripped_jpeg_marker(seg.marker()));
+            Some(jpeg.encoder().bytes().to_vec())
+        }
+        ImageFormat::Png => {
+            let mut png =
+                img_parts::png::Png::from_bytes(Bytes::copy_from_slice(data)).ok()?;
+            png.chunks_mut().retain(|chunk| {
+                let tag = chunk.kind();
+                tag != *b"tEXt" && tag != *b"zTXt" && tag != *b"iTXt" && tag != *b"eXIf"
+            });
+            Some(png.encoder().bytes().to_vec())
+        }
+        ImageFormat::WebP => {
+            let mut webp = WebP::from_bytes(Bytes::copy_from_slice(data)).ok()?;
+            webp.set_exif(None);
+            webp.set_icc_profile(None);
+            // Remove the XMP chunk (four-CC `XMP `) if present.
+            webp.chunks_mut()
+                .retain(|chunk| chunk.id() != img_parts::webp::CHUNK_XMP);
+            Some(webp.encoder().bytes().to_vec())
+        }
+        // Fallthrough: format not recognised (e.g. HEIC/HEIF, RAW files).
+        // Return None so callers with `strip_exif = true` can surface an
+        // explicit error rather than silently leaking metadata.
+        ImageFormat::Unknown => None,
     }
-
-    if let Ok(mut png) = img_parts::png::Png::from_bytes(Bytes::copy_from_slice(data)) {
-        png.chunks_mut().retain(|chunk| {
-            let tag = chunk.kind();
-            tag != *b"tEXt" && tag != *b"zTXt" && tag != *b"iTXt" && tag != *b"eXIf"
-        });
-        return Some(png.encoder().bytes().to_vec());
-    }
-
-    if let Ok(mut webp) = WebP::from_bytes(Bytes::copy_from_slice(data)) {
-        webp.set_exif(None);
-        webp.set_icc_profile(None);
-        // Remove the XMP chunk (four-CC `XMP `) if present.
-        webp.chunks_mut()
-            .retain(|chunk| chunk.id() != img_parts::webp::CHUNK_XMP);
-        return Some(webp.encoder().bytes().to_vec());
-    }
-
-    // Fallthrough: format not recognised by any of the strippers above (e.g.
-    // HEIC/HEIF, RAW files).  Return None so callers with `strip_exif = true`
-    // can surface an explicit error rather than silently leaking metadata.
-    None
 }
 
 /// Returns `true` for JPEG APP markers that carry only metadata.
@@ -59,6 +94,31 @@ fn is_stripped_jpeg_marker(marker: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detect_format_jpeg() {
+        assert_eq!(detect_format(&[0xFF, 0xD8, 0x00]), ImageFormat::Jpeg);
+    }
+
+    #[test]
+    fn detect_format_png() {
+        let magic = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00];
+        assert_eq!(detect_format(&magic), ImageFormat::Png);
+    }
+
+    #[test]
+    fn detect_format_webp() {
+        let mut hdr = [0u8; 12];
+        hdr[..4].copy_from_slice(b"RIFF");
+        hdr[8..12].copy_from_slice(b"WEBP");
+        assert_eq!(detect_format(&hdr), ImageFormat::WebP);
+    }
+
+    #[test]
+    fn detect_format_unknown() {
+        assert_eq!(detect_format(b"not an image"), ImageFormat::Unknown);
+        assert_eq!(detect_format(&[]), ImageFormat::Unknown);
+    }
 
     #[test]
     fn strip_unknown_bytes_returns_none() {
