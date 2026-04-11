@@ -186,7 +186,7 @@ fn validate_avif_output(bytes: &[u8], width: u32, height: u32) -> Result<(), Err
     }
 
     // Verify the ftyp box size field (bytes 0–3, big-endian u32).
-    let box_size = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    let box_size = u32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
     if box_size < MIN_AVIF_BYTES || box_size > bytes.len() {
         img_error!(
             "encode_avif: ftyp box size {} is invalid (output is {} bytes)",

@@ -398,4 +398,17 @@ mod tests {
         let out1080 = resize_raw_image(&raw, OutputResolution::Width1080).unwrap();
         assert_eq!(out1080.width, 1);
     }
+
+    #[test]
+    fn saturating_arithmetic_does_not_truncate_tall_image() {
+        // A very tall portrait image: 4096×16384 resized to Width2560.
+        // height_u64 = (16384 * 2560 + 2048) / 4096 = 10,240 — fits in u32.
+        // This test verifies the saturating-arithmetic path produces the
+        // correct proportional height without any silent truncation.
+        let raw = solid_rgba8(4096, 16384);
+        let out = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
+        assert_eq!(out.width, 2560);
+        // height = (16384 * 2560 + 2048) / 4096 = 10240
+        assert_eq!(out.height, 10240);
+    }
 }
