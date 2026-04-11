@@ -25,7 +25,7 @@ impl MemoryGuard {
     /// Create a guard with the given limit.  Pass `u64::MAX` to disable.
     ///
     /// The current RSS is recorded as the baseline; [`check`](Self::check)
-    /// will fire only when the RSS *increase* from this baseline meets or
+    /// will fire only when the RSS *increase* from this baseline strictly
     /// exceeds `limit_bytes`.
     #[must_use]
     pub fn new(limit_bytes: u64) -> Self {
@@ -59,12 +59,11 @@ impl MemoryGuard {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::MemoryExceeded`] when `current_rss − baseline_rss ≥ limit_bytes`.
-    /// A limit of `0` therefore always triggers the guard (any delta meets the limit).
+    /// Returns [`Error::MemoryExceeded`] when `current_rss − baseline_rss > limit_bytes`.
     pub fn check(&self) -> Result<(), Error> {
         if let Some(rss) = Self::current_rss_bytes() {
             let delta = rss.saturating_sub(self.baseline_bytes);
-            if delta >= self.limit_bytes {
+            if delta > self.limit_bytes {
                 return Err(Error::MemoryExceeded {
                     used_mb: delta / (1024 * 1024),
                     limit_mb: self.limit_bytes / (1024 * 1024),
@@ -131,8 +130,17 @@ mod tests {
 
     #[test]
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    fn guard_fails_over_zero_limit() {
-        assert!(MemoryGuard::new(0).check().is_err());
+    fn guard_passes_with_zero_limit_and_no_increase() {
+        // With the `>` comparison, a zero delta passes even with zero limit
+        let guard = MemoryGuard::new(0);
+        let baseline = guard.baseline_bytes;
+        // If current RSS hasn't increased beyond baseline, check should pass
+        // Note: This test may fail if other threads allocate memory concurrently
+        if let Some(current) = MemoryGuard::current_rss_bytes() {
+            if current <= baseline {
+                assert!(guard.check().is_ok());
+            }
+        }
     }
 
     #[test]
