@@ -69,6 +69,7 @@
 //!
 //! | Flag | Default | Notes |
 //! |------|---------|-------|
+//! | `dev-logging` | off | Structured pipeline logging via the [`log`](https://docs.rs/log) crate. Enable to get `DEBUG`/`INFO`/`WARN`/`ERROR` records from every pipeline stage. Zero cost when disabled. |
 //! | `heic-experimental` | off | HEIC/HEIF support via the `libheif` C library. Linking `libheif` makes the binary LGPL-encumbered. |
 //! | `raw-experimental`  | off | Pure Rust RAW camera format support via `rawloader`. Unstable API. |
 
@@ -89,6 +90,7 @@ pub mod metadata;
 
 pub(crate) mod decoder;
 pub(crate) mod encoder;
+pub(crate) mod logging;
 
 pub use config::Config;
 pub use error::Error;
@@ -149,10 +151,51 @@ impl Converter {
     /// | [`Error::Decode`] | Input could not be decoded (includes oversized input) |
     /// | [`Error::InputTooLarge`] | Pixel count exceeds [`Config::max_pixels`] |
     /// | [`Error::MemoryExceeded`] | Peak RSS exceeded [`Config::memory_limit_bytes`] |
-    /// | [`Error::Encode`] | AVIF encoding failed |
+    /// | [`Error::Encode`] | AVIF encoding failed or output failed structural validation |
     /// | [`Error::UnsupportedFormat`] | Format not supported in this build (e.g., HEIC without `heic-experimental`) |
     pub fn convert(&self, input: &[u8]) -> Result<Vec<u8>, Error> {
+        use logging::{img_error, img_info};
+
+        img_info!(
+            "convert: starting — input {} bytes, quality={}, alpha_quality={}, speed={}, \
+             strip_exif={}, max_input_bytes={}, max_pixels={}, memory_limit={}",
+            input.len(),
+            self.config.quality,
+            self.config.alpha_quality,
+            self.config.speed,
+            self.config.strip_exif,
+            self.config.max_input_bytes,
+            self.config.max_pixels,
+            self.config.memory_limit_bytes,
+        );
+
+        match self.run_pipeline(input) {
+            Ok(avif) => {
+                img_info!(
+                    "convert: complete — {} bytes in, {} bytes out",
+                    input.len(),
+                    avif.len(),
+                );
+                Ok(avif)
+            }
+            Err(e) => {
+                img_error!("convert: failed — {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Inner pipeline: metadata strip → decode → memory guard → encode.
+    ///
+    /// Separated from `convert` so logging can wrap the entire pipeline
+    /// without pushing the outer function over the line-count lint.
+    fn run_pipeline(&self, input: &[u8]) -> Result<Vec<u8>, Error> {
+        use logging::{img_debug, img_error, img_info, img_warn};
+
         if !self.config.strip_exif {
+            img_warn!(
+                "run_pipeline: strip_exif=false — metadata retention increases output size"
+            );
             eprintln!(
                 "img2avif: preserve_metadata is enabled — \
                  metadata retention increases output size and Lambda cost"
@@ -161,6 +204,11 @@ impl Converter {
 
         // Reject oversized uploads before touching any bytes.
         if input.len() as u64 > self.config.max_input_bytes {
+            img_error!(
+                "run_pipeline: input {} bytes exceeds limit of {} bytes",
+                input.len(),
+                self.config.max_input_bytes,
+            );
             return Err(Error::Decode(format!(
                 "input too large: {} bytes exceeds the {}-byte limit",
                 input.len(),
@@ -169,25 +217,77 @@ impl Converter {
         }
 
         let guard = MemoryGuard::new(self.config.memory_limit_bytes);
-        guard.check()?;
+        #[cfg(feature = "dev-logging")]
+        if let Some(rss) = MemoryGuard::current_rss_bytes() {
+            img_debug!("run_pipeline: pre-decode RSS = {} MiB", rss / (1024 * 1024));
+        }
+        #[allow(clippy::question_mark)] // explicit if-let preserves the log call
+        if let Err(e) = guard.check() {
+            img_error!("run_pipeline: pre-decode memory guard failed: {}", e);
+            return Err(e);
+        }
 
         // Strip metadata before decode so the image library never sees
         // potentially malformed APP / ancillary chunks.
         let processed: Vec<u8> = if self.config.strip_exif {
-            metadata::strip_metadata(input)
+            let stripped = metadata::strip_metadata(input);
+            img_debug!(
+                "run_pipeline: metadata stripped — {} → {} bytes",
+                input.len(),
+                stripped.len()
+            );
+            stripped
         } else {
             input.to_vec()
         };
 
-        // Decode to RGBA8.  The decoder enforces max_pixels internally to
-        // prevent decompression-bomb attacks.
-        let raw = decoder::decode(&processed, self.config.max_pixels)?;
+        img_debug!("run_pipeline: decoding {} bytes", processed.len());
+        let raw = match decoder::decode(&processed, self.config.max_pixels) {
+            Ok(r) => r,
+            Err(e) => {
+                img_error!("run_pipeline: decode failed: {}", e);
+                return Err(e);
+            }
+        };
+
+        img_info!(
+            "run_pipeline: decoded — {}×{} px, {} format",
+            raw.width,
+            raw.height,
+            match &raw.pixels {
+                decoder::Pixels::Rgba8(_) => "8-bit RGBA",
+                decoder::Pixels::Rgba16(_) => "16-bit RGBA (10-bit AVIF output)",
+            }
+        );
 
         // Post-decode RSS check: the pixel buffer is now live.
-        guard.check()?;
+        #[cfg(feature = "dev-logging")]
+        if let Some(rss) = MemoryGuard::current_rss_bytes() {
+            img_debug!("run_pipeline: post-decode RSS = {} MiB", rss / (1024 * 1024));
+        }
+        #[allow(clippy::question_mark)] // explicit if-let preserves the log call
+        if let Err(e) = guard.check() {
+            img_error!("run_pipeline: post-decode memory guard failed: {}", e);
+            return Err(e);
+        }
 
-        let avif = encoder::encode_avif(&raw, self.config.quality, self.config.speed, self.config.alpha_quality)?;
-        Ok(avif)
+        img_debug!(
+            "run_pipeline: encoding {}×{} → AVIF q={} aq={} s={}",
+            raw.width, raw.height,
+            self.config.quality, self.config.alpha_quality, self.config.speed,
+        );
+        match encoder::encode_avif(
+            &raw,
+            self.config.quality,
+            self.config.speed,
+            self.config.alpha_quality,
+        ) {
+            Ok(avif) => Ok(avif),
+            Err(e) => {
+                img_error!("run_pipeline: encode failed: {}", e);
+                Err(e)
+            }
+        }
     }
 
     /// Return the [`Config`] this converter was created with.

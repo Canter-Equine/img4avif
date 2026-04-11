@@ -16,6 +16,28 @@ exclude = ["/tests/fixtures", "/benches", "/fuzz"]
 [features]
 default = []
 
+# Structured pipeline logging via the `log` crate facade.
+#
+# When enabled, `img2avif` emits log records at every major pipeline stage
+# (input size check, metadata strip, decode, memory guard, encode, output
+# validation).  Install any `log`-compatible subscriber (e.g. `env_logger`,
+# `tracing-log`, `simplelog`) in your application to consume these records.
+#
+# This feature has **zero runtime cost** when disabled: the log macro calls
+# are removed entirely by the compiler.  It is safe to enable in production
+# if you want observability, but is off by default to keep Lambda cold-start
+# times minimal.
+#
+# Usage:
+#
+#   [dependencies]
+#   img2avif = { version = "0.1", features = ["dev-logging"] }
+#
+# Then in your application initialise a subscriber, e.g.:
+#
+#   env_logger::init(); // RUST_LOG=img2avif=debug cargo run
+dev-logging = ["dep:log"]
+
 # ⚠️  EXPERIMENTAL: HEIC/HEIF support requires the libheif C library at link time.
 # This violates the "no C dependencies" constraint and is unsuitable for stock
 # Lambda layers.  Enable only when you control the runtime environment.
@@ -35,6 +57,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 ravif = { version = "0.13", default-features = false, features = ["threading"] }
 rgb = "0.8"
 img-parts = "0.3"
+
+# Optional logging facade — used only when the `dev-logging` feature is on.
+log = { version = "0.4", optional = true }
 
 # Experimental optional dependencies (see feature docs above).
 libheif-rs = { version = "1.0", optional = true }

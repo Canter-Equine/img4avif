@@ -31,6 +31,7 @@
 
 use std::io::Cursor;
 
+use crate::logging::{img_debug, img_error, img_info};
 use crate::Error;
 
 /// Pixel data for a decoded image.
@@ -91,8 +92,11 @@ fn is_heif_ftyp(data: &[u8]) -> bool {
 /// - [`Error::UnsupportedFormat`] — format detected but not supported (e.g.,
 ///   HEIC/HEIF without the `heic-experimental` feature enabled).
 pub fn decode(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
+    img_debug!("decode: {} bytes, max_pixels={}", data.len(), max_pixels);
+
     // Route HEIC/HEIF through the libheif decoder when available.
     if is_heif_ftyp(data) {
+        img_info!("decode: detected HEIC/HEIF container (ftyp magic)");
         return decode_heif(data, max_pixels);
     }
 
@@ -110,9 +114,17 @@ fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Erro
 
     // Reject formats we don't support before touching the pixel data.
     match reader.format() {
-        Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP) => {}
-        Some(other) => return Err(Error::UnsupportedFormat(format!("{other:?}"))),
-        None => return Err(Error::Decode("unrecognised image format".into())),
+        Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP) => {
+            img_debug!("decode: detected format {:?}", reader.format().unwrap());
+        }
+        Some(other) => {
+            img_error!("decode: unsupported format {:?}", other);
+            return Err(Error::UnsupportedFormat(format!("{other:?}")));
+        }
+        None => {
+            img_error!("decode: could not detect image format");
+            return Err(Error::Decode("unrecognised image format".into()));
+        }
     }
 
     // Cap the decoder's allocation budget to prevent decompression bombs.
@@ -124,14 +136,28 @@ fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Erro
     limits.max_alloc = Some(alloc_cap);
     reader.limits(limits);
 
-    let img = reader.decode().map_err(|e| Error::Decode(e.to_string()))?;
+    let img = reader.decode().map_err(|e| {
+        img_error!("decode: image decode error: {}", e);
+        Error::Decode(e.to_string())
+    })?;
 
     let (width, height) = (img.width(), img.height());
+    let pixel_count = u64::from(width) * u64::from(height);
+
+    img_debug!(
+        "decode: raw dimensions {}×{} ({} Mpx), colour type={:?}",
+        width, height,
+        pixel_count / 1_000_000,
+        img.color()
+    );
 
     // Belt-and-suspenders pixel cap: the Limits check above should prevent
     // this, but we enforce it here too so callers always see InputTooLarge.
-    let pixel_count = u64::from(width) * u64::from(height);
     if pixel_count > max_pixels {
+        img_error!(
+            "decode: image {}×{} ({} px) exceeds max_pixels={}",
+            width, height, pixel_count, max_pixels
+        );
         return Err(Error::InputTooLarge {
             width,
             height,
@@ -143,10 +169,16 @@ fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Erro
     // genuine 10-bit AVIF output (rather than silently discarding 6 bits).
     let pixels = match img.color() {
         image::ColorType::Rgb16 | image::ColorType::Rgba16 => {
+            img_info!("decode: 16-bit PNG detected — preserving full precision for 10-bit AVIF");
             Pixels::Rgba16(img.into_rgba16().into_raw())
         }
-        _ => Pixels::Rgba8(img.into_rgba8().into_raw()),
+        _ => {
+            img_debug!("decode: converting to RGBA8");
+            Pixels::Rgba8(img.into_rgba8().into_raw())
+        }
     };
+
+    img_info!("decode: {}×{} decoded OK", width, height);
 
     Ok(RawImage {
         width,
@@ -168,6 +200,9 @@ fn decode_heif(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
     #[cfg(not(feature = "heic-experimental"))]
     {
         let _ = (data, max_pixels); // suppress unused-variable warnings
+        img_error!(
+            "decode: HEIC/HEIF input but `heic-experimental` feature is not enabled"
+        );
         Err(Error::UnsupportedFormat(
             "HEIC/HEIF (enable the `heic-experimental` Cargo feature and \
              ensure `libheif` is installed on the system)"
@@ -184,17 +219,30 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
 
     let _lib = LibHeif::new();
     let ctx = HeifContext::read_from_bytes(data)
-        .map_err(|e| Error::Decode(format!("HEIF context: {e}")))?;
+        .map_err(|e| {
+            img_error!("decode_heif: context parse error: {}", e);
+            Error::Decode(format!("HEIF context: {e}"))
+        })?;
 
     let handle = ctx
         .primary_image_handle()
-        .map_err(|e| Error::Decode(format!("HEIF primary image: {e}")))?;
+        .map_err(|e| {
+            img_error!("decode_heif: could not get primary image handle: {}", e);
+            Error::Decode(format!("HEIF primary image: {e}"))
+        })?;
 
     // Enforce the pixel budget before allocating the decode buffer.
     let width = handle.width();
     let height = handle.height();
     let pixel_count = u64::from(width) * u64::from(height);
+
+    img_debug!("decode_heif: {}×{} ({} Mpx)", width, height, pixel_count / 1_000_000);
+
     if pixel_count > max_pixels {
+        img_error!(
+            "decode_heif: {}×{} ({} px) exceeds max_pixels={}",
+            width, height, pixel_count, max_pixels
+        );
         return Err(Error::InputTooLarge {
             width,
             height,
@@ -205,18 +253,30 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
     // Decode to interleaved RGBA8.
     let image = _lib
         .decode(&handle, ColorSpace::Rgb(RgbChroma::Rgba), None)
-        .map_err(|e| Error::Decode(format!("HEIF decode: {e}")))?;
+        .map_err(|e| {
+            img_error!("decode_heif: pixel decode error: {}", e);
+            Error::Decode(format!("HEIF decode: {e}"))
+        })?;
 
     let planes = image.planes();
     let interleaved = planes
         .interleaved
-        .ok_or_else(|| Error::Decode("HEIF image has no interleaved RGBA plane".into()))?;
+        .ok_or_else(|| {
+            img_error!("decode_heif: no interleaved RGBA plane in decoded image");
+            Error::Decode("HEIF image has no interleaved RGBA plane".into())
+        })?;
 
     // `interleaved.stride` is the actual number of bytes per row (may include
     // padding).  Strip padding so the pixel buffer is exactly `width * 4` bytes
     // per row.
     let row_bytes = width as usize * 4;
     let stride = interleaved.stride; // bytes per row, not pixels
+    if stride != row_bytes {
+        img_debug!(
+            "decode_heif: row stride {}  != expected {} — stripping padding",
+            stride, row_bytes
+        );
+    }
     let pixels: Vec<u8> = if stride == row_bytes {
         interleaved.data.to_vec()
     } else {
@@ -227,6 +287,8 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
             .copied()
             .collect()
     };
+
+    img_info!("decode_heif: {}×{} decoded OK", width, height);
 
     Ok(RawImage {
         width,

@@ -14,9 +14,34 @@
 //! range (0 – 1 023) by right-shifting six bits, then converts to YCbCr using
 //! the BT.601 matrix.  This matches the colour model used by the 8-bit path
 //! so there is no colour-space discontinuity when mixing input depths.
+//!
+//! ## Output validation
+//!
+//! After encoding, the raw bytes are validated:
+//!
+//! 1. The output must be non-empty.
+//! 2. The output must be at least 20 bytes (the minimum size of a valid ISOBMFF
+//!    `ftyp` box).
+//! 3. Bytes 4–7 must equal `ftyp` — the ISOBMFF box-type marker present in
+//!    every well-formed AVIF file.
+//!
+//! If any check fails, [`Error::Encode`] is returned with a descriptive
+//! message instead of silently handing back corrupt bytes to the caller.
 
 use crate::decoder::{Pixels, RawImage};
+use crate::logging::{img_debug, img_error, img_info, img_warn};
 use crate::Error;
+
+/// Minimum byte length of a structurally valid AVIF file.
+///
+/// An AVIF file is an ISOBMFF container.  The outermost box is always `ftyp`
+/// whose minimum layout is:
+/// ```text
+/// [ 4 bytes size ][ 4 bytes "ftyp" ][ 4 bytes major brand ]
+/// [ 4 bytes minor version ][ 4 bytes compatible brand × 1 ]
+/// ```
+/// That totals 20 bytes.
+const MIN_AVIF_BYTES: usize = 20;
 
 /// Encode a [`RawImage`] as AVIF.
 ///
@@ -32,21 +57,135 @@ use crate::Error;
 /// for uniform quality, or a higher value (e.g. 95) to keep the alpha channel
 /// visually lossless.
 ///
+/// # Output validation
+///
+/// The encoded bytes are validated against the AVIF / ISOBMFF container
+/// format before being returned.  [`Error::Encode`] is returned if the
+/// encoder produces empty, truncated, or structurally invalid output.
+///
 /// # Errors
 ///
-/// Returns [`Error::Encode`] if `rav1e` fails to produce a valid bitstream.
+/// Returns [`Error::Encode`] if `rav1e` fails or produces invalid output.
 pub fn encode_avif(
     image: &RawImage,
     quality: u8,
     speed: u8,
     alpha_quality: u8,
 ) -> Result<Vec<u8>, Error> {
-    match &image.pixels {
+    img_debug!(
+        "encode_avif: {}×{} px, quality={}, alpha_quality={}, speed={}, depth={}",
+        image.width,
+        image.height,
+        quality,
+        alpha_quality,
+        speed,
+        match &image.pixels {
+            Pixels::Rgba8(_) => "8-bit",
+            Pixels::Rgba16(_) => "16-bit",
+        }
+    );
+
+    let avif = match &image.pixels {
         Pixels::Rgba8(bytes) => encode_8bit(image.width, image.height, bytes, quality, speed, alpha_quality),
         Pixels::Rgba16(samples) => {
             encode_16bit(image.width, image.height, samples, quality, speed, alpha_quality)
         }
+    }?;
+
+    validate_avif_output(&avif, image.width, image.height)?;
+
+    #[cfg(feature = "dev-logging")]
+    img_info!(
+        "encode_avif: produced {} bytes ({:.1}× compression ratio)",
+        avif.len(),
+        compression_ratio(image, avif.len()),
+    );
+    #[cfg(not(feature = "dev-logging"))]
+    img_info!("encode_avif: produced {} bytes", avif.len());
+
+    Ok(avif)
+}
+
+/// Validate that `bytes` looks like a structurally sound AVIF file.
+///
+/// Checks:
+/// 1. Non-empty.
+/// 2. At least [`MIN_AVIF_BYTES`] long.
+/// 3. Bytes 4–7 are `b"ftyp"` — the ISOBMFF file-type box marker.
+///
+/// These checks are lightweight (no full ISOBMFF parse) and catch the most
+/// common failure modes: empty output, truncated output, and the encoder
+/// accidentally emitting raw bitstream data without wrapping it in a container.
+fn validate_avif_output(bytes: &[u8], width: u32, height: u32) -> Result<(), Error> {
+    if bytes.is_empty() {
+        img_error!(
+            "encode_avif: encoder returned empty output for {}×{} image",
+            width, height
+        );
+        return Err(Error::Encode(
+            "AVIF encoder produced empty output — this is a bug; please report it".into(),
+        ));
     }
+
+    if bytes.len() < MIN_AVIF_BYTES {
+        img_error!(
+            "encode_avif: output too short ({} bytes, expected ≥ {}) for {}×{} image",
+            bytes.len(), MIN_AVIF_BYTES, width, height
+        );
+        return Err(Error::Encode(format!(
+            "AVIF encoder produced truncated output ({} bytes, minimum valid AVIF is {} bytes)",
+            bytes.len(),
+            MIN_AVIF_BYTES,
+        )));
+    }
+
+    if bytes[4..8] != *b"ftyp" {
+        // Log as hex so developers can identify what the encoder actually returned.
+        img_error!(
+            "encode_avif: output missing ISOBMFF 'ftyp' box — bytes[0..12] = {:02x?}",
+            &bytes[..bytes.len().min(12)]
+        );
+        return Err(Error::Encode(format!(
+            "AVIF encoder produced invalid container: expected ISOBMFF 'ftyp' box at offset 4, \
+             got {:02x?}",
+            &bytes[4..8],
+        )));
+    }
+
+    img_debug!(
+        "encode_avif: output validation passed — {} bytes with ftyp box",
+        bytes.len()
+    );
+
+    // Warn if the file is suspiciously small relative to the pixel count.
+    // A valid AVIF for a non-trivial image is almost always > 100 bytes; a
+    // very low value could indicate that the encoder silently skipped the
+    // image data.
+    let pixel_count = u64::from(width) * u64::from(height);
+    if pixel_count > 64 && bytes.len() < 100 {
+        img_warn!(
+            "encode_avif: output is suspiciously small ({} bytes) for a {}×{} image — \
+             verify the AVIF is decodable",
+            bytes.len(), width, height
+        );
+    }
+
+    Ok(())
+}
+
+/// Approximate compression ratio: `input_bytes / output_bytes`.
+#[cfg(feature = "dev-logging")]
+fn compression_ratio(image: &RawImage, output_bytes: usize) -> f64 {
+    let input_bytes: u64 = match &image.pixels {
+        Pixels::Rgba8(b) => b.len() as u64,
+        Pixels::Rgba16(s) => s.len() as u64 * 2,
+    };
+    if output_bytes == 0 {
+        return 0.0;
+    }
+    // Use u64 → f64; safe for any realistic image size (well under 2^52 bytes).
+    #[allow(clippy::cast_precision_loss)]
+    { input_bytes as f64 / output_bytes as f64 }
 }
 
 /// Encode 8-bit RGBA pixels using `ravif::Encoder::encode_rgba`.
@@ -61,6 +200,8 @@ fn encode_8bit(
     use ravif::{EncodedImage, Encoder, Img};
     use rgb::RGBA8;
 
+    img_debug!("encode_8bit: {}×{} RGBA8 → rav1e encode_rgba", width, height);
+
     let rgba: Vec<RGBA8> = pixels
         .chunks_exact(4)
         .map(|c| RGBA8::new(c[0], c[1], c[2], c[3]))
@@ -68,14 +209,16 @@ fn encode_8bit(
 
     let img = Img::new(rgba.as_slice(), width as usize, height as usize);
 
-    let EncodedImage { avif_file, .. } = Encoder::new()
+    Encoder::new()
         .with_quality(f32::from(quality.clamp(1, 100)))
         .with_alpha_quality(f32::from(alpha_quality.clamp(1, 100)))
         .with_speed(speed.clamp(1, 10))
         .encode_rgba(img)
-        .map_err(|e| Error::Encode(e.to_string()))?;
-
-    Ok(avif_file)
+        .map(|EncodedImage { avif_file, .. }| avif_file)
+        .map_err(|e| {
+            img_error!("encode_8bit: rav1e failed: {}", e);
+            Error::Encode(e.to_string())
+        })
 }
 
 /// Encode 16-bit RGBA pixels as 10-bit AVIF using `ravif::Encoder::encode_raw_planes_10_bit`.
@@ -96,6 +239,11 @@ fn encode_16bit(
     let width_usize = width as usize;
     let height_usize = height as usize;
 
+    img_debug!(
+        "encode_16bit: {}×{} RGBA16 → rav1e encode_raw_planes_10_bit (BT.601 YCbCr)",
+        width, height
+    );
+
     // Each pixel is [R, G, B, A] as u16 (0-65535).
     // Convert to 10-bit YCbCr planes and a separate alpha plane.
     let mut ycbcr_planes: Vec<[u16; 3]> = Vec::with_capacity(width_usize * height_usize);
@@ -108,7 +256,7 @@ fn encode_16bit(
         alpha_plane.push(a >> 6);
     }
 
-    let EncodedImage { avif_file, .. } = Encoder::new()
+    Encoder::new()
         .with_quality(f32::from(quality.clamp(1, 100)))
         .with_alpha_quality(f32::from(alpha_quality.clamp(1, 100)))
         .with_speed(speed.clamp(1, 10))
@@ -120,9 +268,11 @@ fn encode_16bit(
             PixelRange::Full,
             MatrixCoefficients::BT601,
         )
-        .map_err(|e| Error::Encode(e.to_string()))?;
-
-    Ok(avif_file)
+        .map(|EncodedImage { avif_file, .. }| avif_file)
+        .map_err(|e| {
+            img_error!("encode_16bit: rav1e failed: {}", e);
+            Error::Encode(e.to_string())
+        })
 }
 
 /// Convert a 16-bit RGB triplet (0 – 65 535) to 10-bit YCbCr using the
@@ -164,3 +314,53 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
     let clamp10 = |v: f32| v.round().clamp(0.0, MAX10) as u32 as u16;
     [clamp10(y), clamp10(cb), clamp10(cr)]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::decoder::Pixels;
+
+    fn solid_rgba8(width: u32, height: u32, r: u8, g: u8, b: u8, a: u8) -> RawImage {
+        let pixel = [r, g, b, a];
+        let pixels = pixel.repeat(width as usize * height as usize);
+        RawImage { width, height, pixels: Pixels::Rgba8(pixels) }
+    }
+
+    #[test]
+    fn encode_and_validate_small_image() {
+        let img = solid_rgba8(8, 8, 255, 0, 0, 255);
+        let avif = encode_avif(&img, 80, 6, 80).expect("encode failed");
+        assert!(avif.len() >= MIN_AVIF_BYTES);
+        assert_eq!(&avif[4..8], b"ftyp");
+    }
+
+    #[test]
+    fn validate_rejects_empty() {
+        let err = validate_avif_output(&[], 4, 4).unwrap_err();
+        assert!(matches!(err, Error::Encode(_)));
+    }
+
+    #[test]
+    fn validate_rejects_too_short() {
+        let err = validate_avif_output(&[0u8; 10], 4, 4).unwrap_err();
+        assert!(matches!(err, Error::Encode(_)));
+    }
+
+    #[test]
+    fn validate_rejects_missing_ftyp() {
+        // 20 bytes but not an ftyp box
+        let mut fake = vec![0u8; 20];
+        fake[4..8].copy_from_slice(b"moov");
+        let err = validate_avif_output(&fake, 4, 4).unwrap_err();
+        assert!(matches!(err, Error::Encode(ref msg) if msg.contains("ftyp")));
+    }
+
+    #[test]
+    fn validate_accepts_valid_ftyp() {
+        let mut valid = vec![0u8; 24];
+        valid[4..8].copy_from_slice(b"ftyp");
+        valid[8..12].copy_from_slice(b"avif");
+        assert!(validate_avif_output(&valid, 4, 4).is_ok());
+    }
+}
+

@@ -211,8 +211,37 @@ match converter.convert(&huge_image) {
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `dev-logging` | **off** | Structured pipeline logging via the [`log`](https://docs.rs/log) crate. Zero overhead when disabled. |
 | `heic-experimental` | **off** | HEIC/HEIF decoding via `libheif-rs`. **Requires the `libheif` C library at link time.** |
 | `raw-experimental` | **off** | Camera RAW decoding via `rawloader` (pure Rust, unstable API). |
+
+### `dev-logging`
+
+When enabled, `img2avif` emits structured log records under the `img2avif`
+target at every pipeline stage.  Use any [`log`-compatible
+subscriber](https://docs.rs/log#available-logging-implementations):
+
+```toml
+[dependencies]
+img2avif = { version = "0.1", features = ["dev-logging"] }
+env_logger = "0.11"
+```
+
+```rust
+// Initialise the subscriber in your binary or test harness:
+env_logger::init();
+// Then run with: RUST_LOG=img2avif=debug cargo run
+```
+
+| Level | What you see |
+|-------|-------------|
+| `ERROR` | Every error path — context logged before `Err(…)` is returned |
+| `WARN` | Non-fatal issues (metadata preservation, suspiciously small output) |
+| `INFO` | Per-image milestones: dimensions, pixel format, compression ratio |
+| `DEBUG` | Sub-step detail: quality / speed settings, RSS readings, byte counts |
+
+When `dev-logging` is **disabled** (the default), all log macro calls expand
+to `()` — the compiler removes them entirely, so there is **zero runtime cost**.
 
 > ⚠️  **HEIC / RAW support is experimental and opt-in.**  The pure-Rust HEIC
 > ecosystem is not yet production-ready (as of Rust 1.70 / April 2024).  The
