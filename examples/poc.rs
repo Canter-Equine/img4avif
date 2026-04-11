@@ -125,8 +125,11 @@ fn make_kayak_jpeg(width: u32, height: u32) -> Vec<u8> {
     });
 
     let mut buf = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
-        .expect("JPEG encode failed");
+    img.write_to(
+        &mut std::io::Cursor::new(&mut buf),
+        image::ImageFormat::Jpeg,
+    )
+    .expect("JPEG encode failed");
     buf
 }
 

@@ -6,19 +6,34 @@ use crate::Error;
 /// [`Error::MemoryExceeded`] if the limit is breached so the caller can abort
 /// cleanly rather than hitting OOM.
 ///
+/// The guard measures the **increase** in RSS from the baseline recorded at
+/// construction time, rather than the absolute RSS.  This prevents the
+/// pre-existing process baseline (e.g. loaded shared libraries or other
+/// in-flight tasks) from falsely triggering the limit.
+///
 /// Platform support:
 /// - **Linux** — reads `VmRSS` from `/proc/self/status`
 /// - **macOS** — parses `vm_stat` (development only; Lambda runs Linux)
 /// - **Other** — silently skips the check (fail-open)
 pub struct MemoryGuard {
     limit_bytes: u64,
+    /// RSS snapshot taken when the guard was created, used as the delta baseline.
+    baseline_bytes: u64,
 }
 
 impl MemoryGuard {
     /// Create a guard with the given limit.  Pass `u64::MAX` to disable.
+    ///
+    /// The current RSS is recorded as the baseline; [`check`](Self::check)
+    /// will fire only when the RSS *increase* from this baseline meets or
+    /// exceeds `limit_bytes`.
     #[must_use]
     pub fn new(limit_bytes: u64) -> Self {
-        Self { limit_bytes }
+        let baseline_bytes = Self::current_rss_bytes().unwrap_or(0);
+        Self {
+            limit_bytes,
+            baseline_bytes,
+        }
     }
 
     /// Return the current RSS in bytes, or `None` on unsupported platforms.
