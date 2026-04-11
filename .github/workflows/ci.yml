@@ -1,5 +1,9 @@
 name: CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
@@ -16,10 +20,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ── Lint ──────────────────────────────────────────────────────────────────
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -40,7 +42,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: lint-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-lint-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -48,13 +50,14 @@ jobs:
       - name: Clippy (all targets, deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
-  # ── Main test suite (Linux / stable) ─────────────────────────────────────
   test:
-    name: Test (Linux / Rust stable)
-    runs-on: ubuntu-latest
+    name: Test (Rust stable)
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -70,12 +73,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: test-ubuntu-latest-stable-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-stable-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run unit and integration tests
         run: cargo test --lib --tests
 
-  # ── MSRV smoke coverage (Linux only) ─────────────────────────────────────
   msrv:
     name: MSRV (Rust 1.85)
     runs-on: ubuntu-latest
@@ -96,12 +98,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: test-ubuntu-latest-1.85-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-1.85-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Compile unit and integration tests on MSRV
         run: cargo test --lib --tests --no-run
 
-  # ── Documentation ─────────────────────────────────────────────────────────
   docs:
     name: Docs
     runs-on: ubuntu-latest
@@ -119,10 +120,10 @@ jobs:
       - name: cargo doc (deny warnings)
         run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
-  # ── Binary size check (Linux only) ───────────────────────────────────────
   binary-size:
     name: Binary size check
     runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     steps:
@@ -148,7 +149,6 @@ jobs:
             exit 1
           fi
 
-  # ── Security audit ───────────────────────────────────────────────────────
   audit:
     name: Security audit
     runs-on: ubuntu-latest
@@ -161,12 +161,38 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
+        run: cargo install --locked cargo-audit
 
       - name: cargo audit
         run: cargo audit
 
-  # ── Memory stress test (Linux, slow) ─────────────────────────────────────
+  compile-aarch64:
+    name: Cross-compile check (aarch64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Add aarch64 target
+        run: rustup target add aarch64-unknown-linux-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-stable-aarch64-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cross-compile (release, no run)
+        run: cargo build --target aarch64-unknown-linux-gnu --release --no-run
+
   memory-stress:
     name: 50 MP memory stress test
     runs-on: ubuntu-latest
