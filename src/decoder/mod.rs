@@ -38,6 +38,7 @@ use crate::Error;
 ///
 /// The 8-bit variant is produced by JPEG, WebP, 8-bit PNG, and HEIC decoders.
 /// The 16-bit variant is produced by 16-bit PNG and leads to 10-bit AVIF output.
+#[derive(Clone)]
 pub enum Pixels {
     /// Standard 8-bit RGBA pixels (`width × height × 4` bytes).
     Rgba8(Vec<u8>),
@@ -49,6 +50,7 @@ pub enum Pixels {
 }
 
 /// A decoded image ready for AVIF encoding.
+#[derive(Clone)]
 pub struct RawImage {
     /// Width in pixels.
     pub width: u32,

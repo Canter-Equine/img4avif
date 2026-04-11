@@ -1,14 +1,17 @@
+use crate::resize::OutputResolution;
+
 /// Configuration for the AVIF converter.
 ///
 /// Setter methods consume `self` and return the modified value (builder pattern):
 ///
 /// ```rust
-/// use img2avif::Config;
+/// use img2avif::{Config, OutputResolution};
 ///
 /// let config = Config::default()
 ///     .quality(85)
 ///     .speed(6)
-///     .strip_exif(true);
+///     .strip_exif(true)
+///     .output_resolutions(vec![OutputResolution::Original, OutputResolution::Width1080]);
 /// ```
 ///
 /// # Defaults
@@ -22,6 +25,7 @@
 /// | `max_input_bytes` | 100 MiB |
 /// | `max_pixels` | 16 384 × 16 384 (≈ 268 MP) |
 /// | `memory_limit_bytes` | 512 MiB |
+/// | `output_resolutions` | `[Original]` |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// Encoding quality **1 – 100** (higher = better quality, larger file).
@@ -68,6 +72,21 @@ pub struct Config {
     /// A 50 MP RGBA8 image occupies 200 MiB in the pixel buffer alone, so the
     /// default is sized to accommodate that with headroom.  Default: 512 MiB.
     pub memory_limit_bytes: u64,
+
+    /// Which output resolution(s) to produce.
+    ///
+    /// - A **single entry** (the default) controls what [`Converter::convert`]
+    ///   produces.  Defaults to `[OutputResolution::Original]` (no resize).
+    /// - **Multiple entries** are used by
+    ///   [`Converter::convert_multi`](crate::Converter::convert_multi), which
+    ///   decodes the image once and then encodes a separate AVIF for each
+    ///   requested resolution.
+    ///
+    /// Images are only ever **downscaled** — if the source is already at or
+    /// below the target width it is encoded at its original size.
+    ///
+    /// Default: `vec![OutputResolution::Original]`.
+    pub output_resolutions: Vec<OutputResolution>,
 }
 
 impl Default for Config {
@@ -80,6 +99,7 @@ impl Default for Config {
             max_input_bytes: 100 * 1024 * 1024,
             max_pixels: 16_384 * 16_384,
             memory_limit_bytes: 512 * 1024 * 1024,
+            output_resolutions: vec![OutputResolution::Original],
         }
     }
 }
@@ -139,6 +159,38 @@ impl Config {
         self
     }
 
+    /// Set which output resolution(s) to produce.
+    ///
+    /// Pass a `Vec` containing one or more [`OutputResolution`] variants:
+    ///
+    /// - A single entry controls what [`Converter::convert`](crate::Converter::convert)
+    ///   produces.
+    /// - Multiple entries are consumed by
+    ///   [`Converter::convert_multi`](crate::Converter::convert_multi), which
+    ///   decodes the image **once** and encodes a separate AVIF file for each
+    ///   requested resolution.
+    ///
+    /// If an empty `Vec` is supplied, [`Converter::convert`] falls back to
+    /// [`OutputResolution::Original`] (no resize).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use img2avif::{Config, OutputResolution};
+    ///
+    /// // Produce all three resolutions in one convert_multi call.
+    /// let config = Config::default().output_resolutions(vec![
+    ///     OutputResolution::Original,
+    ///     OutputResolution::Width2560,
+    ///     OutputResolution::Width1080,
+    /// ]);
+    /// ```
+    #[must_use]
+    pub fn output_resolutions(mut self, resolutions: Vec<OutputResolution>) -> Self {
+        self.output_resolutions = resolutions;
+        self
+    }
+
     /// Preset tuned for minimum Lambda cost: fastest encoder speed (10),
     /// quality 75, EXIF stripped, 50 MiB input cap, 512 MiB memory budget.
     #[must_use]
@@ -151,6 +203,7 @@ impl Config {
             max_input_bytes: 50 * 1024 * 1024,
             max_pixels: 16_384 * 16_384,
             memory_limit_bytes: 512 * 1024 * 1024,
+            output_resolutions: vec![OutputResolution::Original],
         }
     }
 }

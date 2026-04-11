@@ -29,13 +29,14 @@ on AWS Lambda (Linux x86_64 / aarch64) with:
 3. [Supported input formats](#supported-input-formats)
 4. [HDR10 support](#hdr10-support)
 5. [Configuration reference](#configuration-reference)
-6. [EXIF / metadata handling](#exif--metadata-handling)
-7. [Memory guard](#memory-guard)
-8. [Feature flags](#feature-flags)
-9. [Performance benchmarks](#performance-benchmarks)
-10. [AWS Lambda deployment](#aws-lambda-deployment)
-11. [Security](#security)
-12. [License](#license)
+6. [Output resolution control](#output-resolution-control)
+7. [EXIF / metadata handling](#exif--metadata-handling)
+8. [Memory guard](#memory-guard)
+9. [Feature flags](#feature-flags)
+10. [Performance benchmarks](#performance-benchmarks)
+11. [AWS Lambda deployment](#aws-lambda-deployment)
+12. [Security](#security)
+13. [License](#license)
 
 ---
 
@@ -142,6 +143,7 @@ img2avif = { version = "0.1", features = ["heic-experimental"] }
 | `max_input_bytes` | `u64` | `104_857_600` (100 MiB) | Maximum raw input file size. |
 | `max_pixels` | `u64` | `268_435_456` (≈ 268 MP) | Max decoded pixel count (width × height). |
 | `memory_limit_bytes` | `u64` | `536_870_912` (512 MiB) | Peak RSS budget. |
+| `output_resolutions` | `Vec<OutputResolution>` | `[Original]` | Which resolution(s) to produce. See [Output resolution control](#output-resolution-control). |
 
 All setter methods return `Self` for chaining:
 
@@ -153,6 +155,59 @@ let config = Config::default()
     .max_pixels(10_000 * 10_000)
     .memory_limit_bytes(512 * 1024 * 1024);
 ```
+
+---
+
+## Output resolution control
+
+By default `img2avif` encodes images at their original resolution.  Use
+`Config::output_resolutions` with any combination of `OutputResolution`
+variants to resize before encoding.
+
+| Variant | Target width | Behaviour |
+|---------|-------------|-----------|
+| `Original` | — | No resize; encodes at source dimensions |
+| `Width2560` | 2560 px | Shrinks to 2560 px wide if source is wider |
+| `Width1080` | 1080 px | Shrinks to 1080 px wide if source is wider |
+
+**Rules:**
+- **Only downscales.** Images already at or below the target width are
+  passed through unchanged — `img2avif` never upscales.
+- **Aspect ratio preserved.** Height is computed proportionally; no cropping.
+- **Lanczos-3 filter** is used for high-quality downsampling.
+
+### Single output at a specific width
+
+```rust
+use img2avif::{Config, Converter, OutputResolution};
+
+let config = Config::default()
+    .output_resolutions(vec![OutputResolution::Width1080]);
+let avif = Converter::new(config)?.convert(&src_bytes)?;
+```
+
+### Multiple outputs in one decode pass
+
+Use `convert_multi` to decode once and get all requested sizes:
+
+```rust
+use img2avif::{Config, Converter, ConversionOutput, OutputResolution};
+
+let config = Config::default().output_resolutions(vec![
+    OutputResolution::Original,   // full resolution
+    OutputResolution::Width2560,  // 2K variant
+    OutputResolution::Width1080,  // 1080 p variant
+]);
+
+let outputs: Vec<ConversionOutput> = Converter::new(config)?.convert_multi(&src_bytes)?;
+for out in &outputs {
+    println!("{:?}: {} bytes", out.resolution, out.data.len());
+}
+```
+
+> **Lambda tip:** `convert_multi` with all three resolutions costs only
+> slightly more than a single `convert` call because the decode step runs
+> only once.  The three encode passes are independent and parallelisable.
 
 ---
 

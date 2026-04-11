@@ -65,6 +65,37 @@
 //!   before and after decode; breaches return [`Error::MemoryExceeded`].
 //! - **No unsafe code** — enforced by `#![forbid(unsafe_code)]`.
 //!
+//! ## Output resolution control
+//!
+//! By default `img2avif` encodes images at their original resolution.  Set
+//! [`Config::output_resolutions`] to resize before encoding:
+//!
+//! ```rust,no_run
+//! use img2avif::{Config, Converter, OutputResolution};
+//!
+//! # fn main() -> Result<(), img2avif::Error> {
+//! let src = std::fs::read("photo.jpg")?;
+//!
+//! // Single output at 1080 px wide:
+//! let config = Config::default()
+//!     .output_resolutions(vec![OutputResolution::Width1080]);
+//! let avif_1080 = Converter::new(config)?.convert(&src)?;
+//!
+//! // All three sizes in one decode pass:
+//! let config_all = Config::default()
+//!     .output_resolutions(vec![
+//!         OutputResolution::Original,
+//!         OutputResolution::Width2560,
+//!         OutputResolution::Width1080,
+//!     ]);
+//! let outputs = Converter::new(config_all)?.convert_multi(&src)?;
+//! for out in &outputs {
+//!     println!("{:?}: {} bytes", out.resolution, out.data.len());
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## Feature flags
 //!
 //! | Flag | Default | Notes |
@@ -87,6 +118,8 @@ pub mod error;
 pub mod memory_guard;
 /// EXIF / metadata stripping utilities.
 pub mod metadata;
+/// Output resolution control and image resizing — see [`OutputResolution`].
+pub mod resize;
 
 pub(crate) mod decoder;
 pub(crate) mod encoder;
@@ -95,6 +128,41 @@ pub(crate) mod logging;
 pub use config::Config;
 pub use error::Error;
 pub use memory_guard::MemoryGuard;
+pub use resize::OutputResolution;
+
+// Re-export ConversionOutput so callers don't need to import from lib directly.
+// (defined below near Converter)
+
+/// A single AVIF output produced by [`Converter::convert_multi`].
+///
+/// Each value pairs the [`OutputResolution`] that was requested with the
+/// encoded AVIF bytes.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use img2avif::{Config, Converter, ConversionOutput, OutputResolution};
+///
+/// # fn main() -> Result<(), img2avif::Error> {
+/// let config = Config::default().output_resolutions(vec![
+///     OutputResolution::Original,
+///     OutputResolution::Width1080,
+/// ]);
+/// let converter = Converter::new(config)?;
+/// let outputs: Vec<ConversionOutput> = converter.convert_multi(&[])?;
+/// for out in outputs {
+///     println!("{:?} → {} bytes", out.resolution, out.data.len());
+/// }
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug)]
+pub struct ConversionOutput {
+    /// The resolution variant that produced this output.
+    pub resolution: OutputResolution,
+    /// The encoded AVIF bytes.
+    pub data: Vec<u8>,
+}
 
 /// The main conversion entry-point.
 ///
@@ -129,7 +197,9 @@ impl Converter {
         Ok(Self { config })
     }
 
-    /// Convert raw image bytes to AVIF.
+    /// Convert raw image bytes to AVIF using the first resolution in
+    /// [`Config::output_resolutions`] (defaults to
+    /// [`OutputResolution::Original`] when the list is empty).
     ///
     /// The input format is detected automatically from magic bytes; the
     /// following formats are supported:
@@ -144,6 +214,8 @@ impl Converter {
     ///
     /// Returns the encoded AVIF file as a `Vec<u8>`.
     ///
+    /// For multiple resolutions in one call, use [`Self::convert_multi`].
+    ///
     /// # Errors
     ///
     /// | Variant | Cause |
@@ -152,7 +224,7 @@ impl Converter {
     /// | [`Error::InputTooLarge`] | Pixel count exceeds [`Config::max_pixels`] |
     /// | [`Error::MemoryExceeded`] | Peak RSS exceeded [`Config::memory_limit_bytes`] |
     /// | [`Error::Encode`] | AVIF encoding failed or output failed structural validation |
-    /// | [`Error::UnsupportedFormat`] | Format not supported in this build (e.g., HEIC without `heic-experimental`) |
+    /// | [`Error::UnsupportedFormat`] | Format not supported in this build |
     pub fn convert(&self, input: &[u8]) -> Result<Vec<u8>, Error> {
         use logging::{img_error, img_info};
 
@@ -169,7 +241,14 @@ impl Converter {
             self.config.memory_limit_bytes,
         );
 
-        match self.run_pipeline(input) {
+        let resolution = self
+            .config
+            .output_resolutions
+            .first()
+            .copied()
+            .unwrap_or(OutputResolution::Original);
+
+        match self.single_convert(input, resolution) {
             Ok(avif) => {
                 img_info!(
                     "convert: complete — {} bytes in, {} bytes out",
@@ -185,16 +264,81 @@ impl Converter {
         }
     }
 
-    /// Inner pipeline: metadata strip → decode → memory guard → encode.
+    /// Decode `input` once and encode a separate AVIF for every resolution
+    /// listed in [`Config::output_resolutions`].
     ///
-    /// Separated from `convert` so logging can wrap the entire pipeline
-    /// without pushing the outer function over the line-count lint.
-    fn run_pipeline(&self, input: &[u8]) -> Result<Vec<u8>, Error> {
+    /// Returns a [`Vec<ConversionOutput>`] in the same order as
+    /// `config.output_resolutions`.  If `output_resolutions` is empty, a
+    /// single [`OutputResolution::Original`] output is returned.
+    ///
+    /// The decode step runs only once regardless of how many resolutions are
+    /// requested, making this more efficient than calling [`Self::convert`]
+    /// multiple times.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error encountered (during decode or any encode step).
+    /// Errors are the same variants as [`Self::convert`].
+    pub fn convert_multi(&self, input: &[u8]) -> Result<Vec<ConversionOutput>, Error> {
+        use logging::{img_error, img_info};
+
+        let resolutions: &[OutputResolution] = if self.config.output_resolutions.is_empty() {
+            &[OutputResolution::Original]
+        } else {
+            &self.config.output_resolutions
+        };
+
+        img_info!(
+            "convert_multi: starting — input {} bytes, {} resolution(s)",
+            input.len(),
+            resolutions.len(),
+        );
+
+        let raw = match self.validate_and_decode(input) {
+            Ok(r) => r,
+            Err(e) => {
+                img_error!("convert_multi: decode failed — {}", e);
+                return Err(e);
+            }
+        };
+
+        let mut outputs = Vec::with_capacity(resolutions.len());
+        for &resolution in resolutions {
+            let resized = resize::resize_raw_image(raw.clone(), resolution);
+            let data = match self.encode_raw(&resized) {
+                Ok(d) => d,
+                Err(e) => {
+                    img_error!("convert_multi: encode for {:?} failed — {}", resolution, e);
+                    return Err(e);
+                }
+            };
+            img_info!(
+                "convert_multi: {:?} → {} bytes",
+                resolution,
+                data.len(),
+            );
+            outputs.push(ConversionOutput { resolution, data });
+        }
+
+        img_info!(
+            "convert_multi: complete — {} output(s) produced",
+            outputs.len()
+        );
+        Ok(outputs)
+    }
+
+    /// Validate input size, strip metadata, run memory guards, and decode to a
+    /// [`decoder::RawImage`].
+    ///
+    /// This is the expensive half of the pipeline (I/O + decompression).
+    /// [`single_convert`](Self::single_convert) and
+    /// [`convert_multi`](Self::convert_multi) both call this once.
+    fn validate_and_decode(&self, input: &[u8]) -> Result<decoder::RawImage, Error> {
         use logging::{img_debug, img_error, img_info, img_warn};
 
         if !self.config.strip_exif {
             img_warn!(
-                "run_pipeline: strip_exif=false — metadata retention increases output size"
+                "validate_and_decode: strip_exif=false — metadata retention increases output size"
             );
             eprintln!(
                 "img2avif: preserve_metadata is enabled — \
@@ -202,10 +346,9 @@ impl Converter {
             );
         }
 
-        // Reject oversized uploads before touching any bytes.
         if input.len() as u64 > self.config.max_input_bytes {
             img_error!(
-                "run_pipeline: input {} bytes exceeds limit of {} bytes",
+                "validate_and_decode: input {} bytes exceeds limit of {} bytes",
                 input.len(),
                 self.config.max_input_bytes,
             );
@@ -219,20 +362,18 @@ impl Converter {
         let guard = MemoryGuard::new(self.config.memory_limit_bytes);
         #[cfg(feature = "dev-logging")]
         if let Some(rss) = MemoryGuard::current_rss_bytes() {
-            img_debug!("run_pipeline: pre-decode RSS = {} MiB", rss / (1024 * 1024));
+            img_debug!("validate_and_decode: pre-decode RSS = {} MiB", rss / (1024 * 1024));
         }
         #[allow(clippy::question_mark)] // explicit if-let preserves the log call
         if let Err(e) = guard.check() {
-            img_error!("run_pipeline: pre-decode memory guard failed: {}", e);
+            img_error!("validate_and_decode: pre-decode memory guard failed: {}", e);
             return Err(e);
         }
 
-        // Strip metadata before decode so the image library never sees
-        // potentially malformed APP / ancillary chunks.
         let processed: Vec<u8> = if self.config.strip_exif {
             let stripped = metadata::strip_metadata(input);
             img_debug!(
-                "run_pipeline: metadata stripped — {} → {} bytes",
+                "validate_and_decode: metadata stripped — {} → {} bytes",
                 input.len(),
                 stripped.len()
             );
@@ -241,17 +382,17 @@ impl Converter {
             input.to_vec()
         };
 
-        img_debug!("run_pipeline: decoding {} bytes", processed.len());
+        img_debug!("validate_and_decode: decoding {} bytes", processed.len());
         let raw = match decoder::decode(&processed, self.config.max_pixels) {
             Ok(r) => r,
             Err(e) => {
-                img_error!("run_pipeline: decode failed: {}", e);
+                img_error!("validate_and_decode: decode failed: {}", e);
                 return Err(e);
             }
         };
 
         img_info!(
-            "run_pipeline: decoded — {}×{} px, {} format",
+            "validate_and_decode: decoded — {}×{} px, {} format",
             raw.width,
             raw.height,
             match &raw.pixels {
@@ -260,34 +401,43 @@ impl Converter {
             }
         );
 
-        // Post-decode RSS check: the pixel buffer is now live.
         #[cfg(feature = "dev-logging")]
         if let Some(rss) = MemoryGuard::current_rss_bytes() {
-            img_debug!("run_pipeline: post-decode RSS = {} MiB", rss / (1024 * 1024));
+            img_debug!("validate_and_decode: post-decode RSS = {} MiB", rss / (1024 * 1024));
         }
         #[allow(clippy::question_mark)] // explicit if-let preserves the log call
         if let Err(e) = guard.check() {
-            img_error!("run_pipeline: post-decode memory guard failed: {}", e);
+            img_error!("validate_and_decode: post-decode memory guard failed: {}", e);
             return Err(e);
         }
 
+        Ok(raw)
+    }
+
+    /// Encode a (possibly resized) [`decoder::RawImage`] to AVIF bytes.
+    fn encode_raw(&self, raw: &decoder::RawImage) -> Result<Vec<u8>, Error> {
+        use logging::{img_debug, img_error};
         img_debug!(
-            "run_pipeline: encoding {}×{} → AVIF q={} aq={} s={}",
+            "encode_raw: {}×{} q={} aq={} s={}",
             raw.width, raw.height,
             self.config.quality, self.config.alpha_quality, self.config.speed,
         );
-        match encoder::encode_avif(
-            &raw,
-            self.config.quality,
-            self.config.speed,
-            self.config.alpha_quality,
-        ) {
+        match encoder::encode_avif(raw, self.config.quality, self.config.speed, self.config.alpha_quality) {
             Ok(avif) => Ok(avif),
             Err(e) => {
-                img_error!("run_pipeline: encode failed: {}", e);
+                img_error!("encode_raw: failed: {}", e);
                 Err(e)
             }
         }
+    }
+
+    /// Decode + resize + encode for a single resolution.  Used by [`Self::convert`].
+    fn single_convert(&self, input: &[u8], resolution: OutputResolution) -> Result<Vec<u8>, Error> {
+        use logging::img_debug;
+        let raw = self.validate_and_decode(input)?;
+        img_debug!("single_convert: applying resolution {:?}", resolution);
+        let resized = resize::resize_raw_image(raw, resolution);
+        self.encode_raw(&resized)
     }
 
     /// Return the [`Config`] this converter was created with.
@@ -353,5 +503,91 @@ mod tests {
         let cfg = Config::default().quality(42);
         let converter = Converter::new(cfg).unwrap();
         assert_eq!(converter.config().quality, 42);
+    }
+
+    // --- output resolution tests -----------------------------------------
+
+    #[test]
+    fn convert_original_resolution_unchanged() {
+        // A 16×16 image should not be resized when OutputResolution::Original is used.
+        let png = make_minimal_png(16, 16);
+        let config = Config::default()
+            .output_resolutions(vec![OutputResolution::Original]);
+        let converter = Converter::new(config).unwrap();
+        let avif = converter.convert(&png).expect("conversion failed");
+        assert!(!avif.is_empty());
+    }
+
+    #[test]
+    fn convert_width1080_small_image_not_upscaled() {
+        // A 4×4 image is well below 1080 px and must not be upscaled.
+        let png = make_minimal_png(4, 4);
+        let config = Config::default()
+            .output_resolutions(vec![OutputResolution::Width1080]);
+        let converter = Converter::new(config).unwrap();
+        let avif = converter.convert(&png).expect("conversion failed");
+        assert!(!avif.is_empty());
+    }
+
+    #[test]
+    fn convert_empty_output_resolutions_defaults_to_original() {
+        // Empty output_resolutions → falls back to Original.
+        let png = make_minimal_png(4, 4);
+        let config = Config::default().output_resolutions(vec![]);
+        let converter = Converter::new(config).unwrap();
+        let avif = converter.convert(&png).expect("conversion failed");
+        assert!(!avif.is_empty());
+    }
+
+    #[test]
+    fn convert_multi_single_resolution() {
+        let png = make_minimal_png(4, 4);
+        let config = Config::default()
+            .output_resolutions(vec![OutputResolution::Original]);
+        let converter = Converter::new(config).unwrap();
+        let outputs = converter.convert_multi(&png).expect("convert_multi failed");
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].resolution, OutputResolution::Original);
+        assert!(!outputs[0].data.is_empty());
+    }
+
+    #[test]
+    fn convert_multi_all_resolutions() {
+        let png = make_minimal_png(8, 8);
+        let config = Config::default().output_resolutions(vec![
+            OutputResolution::Original,
+            OutputResolution::Width2560,
+            OutputResolution::Width1080,
+        ]);
+        let converter = Converter::new(config).unwrap();
+        let outputs = converter.convert_multi(&png).expect("convert_multi failed");
+        assert_eq!(outputs.len(), 3);
+        assert_eq!(outputs[0].resolution, OutputResolution::Original);
+        assert_eq!(outputs[1].resolution, OutputResolution::Width2560);
+        assert_eq!(outputs[2].resolution, OutputResolution::Width1080);
+        for out in &outputs {
+            assert!(!out.data.is_empty(), "{:?} produced empty output", out.resolution);
+        }
+    }
+
+    #[test]
+    fn convert_multi_empty_resolutions_defaults_to_original() {
+        let png = make_minimal_png(4, 4);
+        let config = Config::default().output_resolutions(vec![]);
+        let converter = Converter::new(config).unwrap();
+        let outputs = converter.convert_multi(&png).expect("convert_multi failed");
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].resolution, OutputResolution::Original);
+    }
+
+    #[test]
+    fn convert_multi_propagates_decode_error() {
+        let config = Config::default().output_resolutions(vec![
+            OutputResolution::Original,
+            OutputResolution::Width1080,
+        ]);
+        let converter = Converter::new(config).unwrap();
+        let err = converter.convert_multi(b"not an image").unwrap_err();
+        assert!(matches!(err, Error::Decode(_) | Error::UnsupportedFormat(_)));
     }
 }
