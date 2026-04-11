@@ -61,14 +61,35 @@ pub struct RawImage {
 }
 
 /// Returns `true` when `data` starts with an ISO Base Media file type box
-/// (`ftyp`), which is the common container for HEIF and HEIC files.
+/// (`ftyp`) **and** the major brand identifies a HEIF/HEIC family container.
 ///
 /// The ISOBMFF `ftyp` box layout is:
 /// ```text
 /// [ 4 bytes: box size ][ 4 bytes: b"ftyp" ][ 4 bytes: major brand ] ...
 /// ```
+///
+/// Checking only the `ftyp` marker is not sufficient because many other
+/// ISOBMFF-based formats (MP4, MOV, M4A, CMAF …) also start with `ftyp`.
+/// We therefore also verify that the 4-byte major brand is one of the known
+/// HEIF family brands before routing the file to the HEIF decoder.
+const HEIF_BRANDS: &[[u8; 4]] = &[
+    *b"heic", // HEVC Main still image
+    *b"heis", // HEVC Main still image (scalable)
+    *b"hevc", // HEVC Main image sequence
+    *b"hevx", // HEVC Main + extensions image sequence
+    *b"heim", // HEVC still image with multi-layer
+    *b"heix", // HEVC still image with extensions
+    *b"mif1", // Image items (including AVIF-as-HEIF)
+    *b"msf1", // Image sequence (including HEIF video)
+    *b"avif", // AVIF still image
+];
+
 fn is_heif_ftyp(data: &[u8]) -> bool {
-    data.len() >= 12 && data[4..8] == *b"ftyp"
+    data.len() >= 12
+        && data[4..8] == *b"ftyp"
+        && HEIF_BRANDS
+            .iter()
+            .any(|brand| *brand == data[8..12])
 }
 
 /// Decode `data` into a [`RawImage`].
@@ -76,7 +97,7 @@ fn is_heif_ftyp(data: &[u8]) -> bool {
 /// Format is detected from the file's magic bytes.  JPEG, PNG, and WebP are
 /// always supported.  HEIC / HEIF requires the `heic-experimental` feature.
 ///
-/// The decoder allocation budget is capped at `max_pixels * 4 + 64 MiB` to
+/// The decoder allocation budget is capped at `max_pixels * 8 + 64 MiB` to
 /// prevent decompression-bomb attacks: a small compressed file that claims
 /// enormous dimensions will exhaust the budget and return an error rather
 /// than allocating gigabytes of RAM.

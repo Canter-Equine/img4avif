@@ -59,17 +59,26 @@ pub enum OutputResolution {
     /// Shrink so the width is at most **1080 pixels**, preserving the aspect
     /// ratio.  Images already ≤ 1080 px wide are passed through unchanged.
     Width1080,
+    /// Shrink so the width is at most the given number of pixels, preserving
+    /// the aspect ratio.  Images already at or below this width are passed
+    /// through unchanged.  A width of `0` is treated as [`Original`](Self::Original)
+    /// (no resize).
+    Custom(u32),
 }
 
 impl OutputResolution {
     /// Returns the maximum permitted width for this variant, or `None` for
-    /// [`OutputResolution::Original`] (no limit).
+    /// [`OutputResolution::Original`] (no limit) and for
+    /// [`OutputResolution::Custom(0)`](OutputResolution::Custom) (treated as
+    /// no limit).
     #[must_use]
     pub(crate) fn max_width(self) -> Option<u32> {
         match self {
             Self::Original => None,
             Self::Width2560 => Some(2560),
             Self::Width1080 => Some(1080),
+            Self::Custom(0) => None,
+            Self::Custom(w) => Some(w),
         }
     }
 }
@@ -83,24 +92,28 @@ impl OutputResolution {
 /// [`Pixels::Rgba8`] and [`Pixels::Rgba16`] inputs are supported; 16-bit
 /// precision is preserved throughout the resize step.
 ///
+/// Accepts the image by shared reference so that callers can invoke this
+/// function multiple times on the same [`RawImage`] (e.g. `convert_multi`)
+/// without cloning the pixel buffer upfront.
+///
 /// # Errors
 ///
 /// Returns [`Error::Internal`] if the pixel buffer does not match the
 /// declared image dimensions.  This should never happen with images produced
 /// by the built-in decoders; if it does, please report a bug.
 pub(crate) fn resize_raw_image(
-    raw: RawImage,
+    raw: &RawImage,
     resolution: OutputResolution,
 ) -> Result<RawImage, Error> {
     let Some(target_width) = resolution.max_width() else {
         // OutputResolution::Original — return the image unchanged.
-        return Ok(raw);
+        return Ok(raw.clone());
     };
 
-    let RawImage {
+    let &RawImage {
         width,
         height,
-        pixels,
+        ref pixels,
     } = raw;
 
     if width <= target_width {
@@ -113,7 +126,7 @@ pub(crate) fn resize_raw_image(
         return Ok(RawImage {
             width,
             height,
-            pixels,
+            pixels: pixels.clone(),
         });
     }
 
@@ -137,7 +150,7 @@ pub(crate) fn resize_raw_image(
 
     match pixels {
         Pixels::Rgba8(data) => {
-            let buf = image::RgbaImage::from_raw(width, height, data).ok_or_else(|| {
+            let buf = image::RgbaImage::from_raw(width, height, data.clone()).ok_or_else(|| {
                 Error::Internal(format!(
                     "RGBA8 pixel buffer size does not match declared dimensions {width}×{height}; \
                      this is a bug — please report it"
@@ -158,7 +171,7 @@ pub(crate) fn resize_raw_image(
         Pixels::Rgba16(data) => {
             use image::{ImageBuffer, Rgba};
             let buf: ImageBuffer<Rgba<u16>, Vec<u16>> =
-                ImageBuffer::from_raw(width, height, data)
+                ImageBuffer::from_raw(width, height, data.clone())
                     .ok_or_else(|| Error::Internal(format!(
                         "RGBA16 pixel buffer size does not match declared dimensions {width}×{height}; \
                          this is a bug — please report it"
@@ -204,7 +217,7 @@ mod tests {
     #[test]
     fn original_is_unchanged() {
         let raw = solid_rgba8(4000, 3000);
-        let out = resize_raw_image(raw, OutputResolution::Original).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Original).unwrap();
         assert_eq!(out.width, 4000);
         assert_eq!(out.height, 3000);
     }
@@ -213,11 +226,11 @@ mod tests {
     fn no_upscale_when_already_small() {
         // A 640-wide image should not be upscaled to 2560 or 1080.
         let raw = solid_rgba8(640, 480);
-        let out2560 = resize_raw_image(raw.clone(), OutputResolution::Width2560).unwrap();
+        let out2560 = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
         assert_eq!(out2560.width, 640);
         assert_eq!(out2560.height, 480);
 
-        let out1080 = resize_raw_image(raw, OutputResolution::Width1080).unwrap();
+        let out1080 = resize_raw_image(&raw, OutputResolution::Width1080).unwrap();
         assert_eq!(out1080.width, 640);
         assert_eq!(out1080.height, 480);
     }
@@ -225,7 +238,7 @@ mod tests {
     #[test]
     fn downscales_to_2560() {
         let raw = solid_rgba8(5120, 2880); // 16:9 at 5K
-        let out = resize_raw_image(raw, OutputResolution::Width2560).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
         assert_eq!(out.width, 2560);
         assert_eq!(out.height, 1440); // 16:9 preserved
     }
@@ -233,7 +246,7 @@ mod tests {
     #[test]
     fn downscales_to_1080() {
         let raw = solid_rgba8(1920, 1080); // Full HD
-        let out = resize_raw_image(raw, OutputResolution::Width1080).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Width1080).unwrap();
         assert_eq!(out.width, 1080);
         // Height: (1080 * 1080 + 960) / 1920 = 1167360 / 1920 = 608 (exactly)
         assert_eq!(out.height, 608);
@@ -243,7 +256,7 @@ mod tests {
     fn aspect_ratio_preserved_portrait() {
         // Portrait 2:3 at 4320×6480 (higher-res)
         let raw = solid_rgba8(4320, 6480);
-        let out = resize_raw_image(raw, OutputResolution::Width2560).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
         assert_eq!(out.width, 2560);
         // height = 6480 * 2560 / 4320 = 3840
         assert_eq!(out.height, 3840);
@@ -252,9 +265,32 @@ mod tests {
     #[test]
     fn exact_target_width_is_not_resized() {
         let raw = solid_rgba8(2560, 1440);
-        let out = resize_raw_image(raw, OutputResolution::Width2560).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
         assert_eq!(out.width, 2560);
         assert_eq!(out.height, 1440);
+    }
+
+    #[test]
+    fn custom_resolution_downscales() {
+        let raw = solid_rgba8(1920, 1080);
+        let out = resize_raw_image(&raw, OutputResolution::Custom(720)).unwrap();
+        assert_eq!(out.width, 720);
+    }
+
+    #[test]
+    fn custom_resolution_zero_is_original() {
+        let raw = solid_rgba8(1920, 1080);
+        let out = resize_raw_image(&raw, OutputResolution::Custom(0)).unwrap();
+        assert_eq!(out.width, 1920);
+        assert_eq!(out.height, 1080);
+    }
+
+    #[test]
+    fn custom_resolution_no_upscale() {
+        let raw = solid_rgba8(640, 480);
+        let out = resize_raw_image(&raw, OutputResolution::Custom(1280)).unwrap();
+        assert_eq!(out.width, 640);
+        assert_eq!(out.height, 480);
     }
 
     #[test]
@@ -262,6 +298,9 @@ mod tests {
         assert_eq!(OutputResolution::Original.max_width(), None);
         assert_eq!(OutputResolution::Width2560.max_width(), Some(2560));
         assert_eq!(OutputResolution::Width1080.max_width(), Some(1080));
+        assert_eq!(OutputResolution::Custom(720).max_width(), Some(720));
+        assert_eq!(OutputResolution::Custom(3840).max_width(), Some(3840));
+        assert_eq!(OutputResolution::Custom(0).max_width(), None);
     }
 
     // --- 16-bit resize tests ---
@@ -269,7 +308,7 @@ mod tests {
     #[test]
     fn rgba16_original_is_unchanged() {
         let raw = solid_rgba16(4000, 3000);
-        let out = resize_raw_image(raw, OutputResolution::Original).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Original).unwrap();
         assert_eq!(out.width, 4000);
         assert_eq!(out.height, 3000);
         assert!(matches!(out.pixels, Pixels::Rgba16(_)));
@@ -278,7 +317,7 @@ mod tests {
     #[test]
     fn rgba16_downscales_to_2560() {
         let raw = solid_rgba16(5120, 2880);
-        let out = resize_raw_image(raw, OutputResolution::Width2560).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
         assert_eq!(out.width, 2560);
         assert_eq!(out.height, 1440);
         assert!(matches!(out.pixels, Pixels::Rgba16(_)));
@@ -287,7 +326,7 @@ mod tests {
     #[test]
     fn rgba16_no_upscale() {
         let raw = solid_rgba16(640, 480);
-        let out = resize_raw_image(raw, OutputResolution::Width1080).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Width1080).unwrap();
         assert_eq!(out.width, 640);
         assert_eq!(out.height, 480);
     }
@@ -306,7 +345,7 @@ mod tests {
             // Only 1 pixel worth of data instead of 2000 * 100 pixels
             pixels: Pixels::Rgba8(vec![255u8, 0, 0, 255]),
         };
-        let err = resize_raw_image(raw, OutputResolution::Width1080).unwrap_err();
+        let err = resize_raw_image(&raw, OutputResolution::Width1080).unwrap_err();
         assert!(
             matches!(err, Error::Internal(_)),
             "expected Error::Internal, got {err:?}"
@@ -316,17 +355,11 @@ mod tests {
     #[test]
     fn mismatched_rgba16_buffer_returns_internal_error() {
         let raw = RawImage {
-            width: 100,
+            width: 2000,
             height: 100,
             pixels: Pixels::Rgba16(vec![65535u16, 0, 0, 65535]),
         };
-        // Force a downscale by declaring width as 2000 with target 1080
-        let raw = RawImage {
-            width: 2000,
-            height: 100,
-            pixels: raw.pixels,
-        };
-        let err = resize_raw_image(raw, OutputResolution::Width1080).unwrap_err();
+        let err = resize_raw_image(&raw, OutputResolution::Width1080).unwrap_err();
         assert!(
             matches!(err, Error::Internal(_)),
             "expected Error::Internal, got {err:?}"
@@ -339,7 +372,7 @@ mod tests {
     fn very_wide_single_row() {
         // 2000×1 image, resize to Width1080 → 1080×1 (height stays 1)
         let raw = solid_rgba8(2000, 1);
-        let out = resize_raw_image(raw, OutputResolution::Width1080).unwrap();
+        let out = resize_raw_image(&raw, OutputResolution::Width1080).unwrap();
         assert_eq!(out.width, 1080);
         assert_eq!(out.height, 1); // floor((1 * 1080 + 1000) / 2000) = 1
     }
@@ -348,9 +381,9 @@ mod tests {
     fn single_pixel_image() {
         // 1×1 image is below every target width — returned unchanged
         let raw = solid_rgba8(1, 1);
-        let out2560 = resize_raw_image(raw.clone(), OutputResolution::Width2560).unwrap();
+        let out2560 = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
         assert_eq!(out2560.width, 1);
-        let out1080 = resize_raw_image(raw, OutputResolution::Width1080).unwrap();
+        let out1080 = resize_raw_image(&raw, OutputResolution::Width1080).unwrap();
         assert_eq!(out1080.width, 1);
     }
 }

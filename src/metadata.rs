@@ -1,3 +1,4 @@
+use crate::logging::img_warn;
 use img_parts::{webp::WebP, Bytes, ImageEXIF, ImageICC};
 
 /// Strip EXIF, IPTC, and XMP metadata from `data`.
@@ -8,7 +9,9 @@ use img_parts::{webp::WebP, Bytes, ImageEXIF, ImageICC};
 /// - **PNG** — removes `tEXt`, `zTXt`, `iTXt`, and `eXIf` chunks
 /// - **WebP** — removes EXIF, ICC, and XMP chunks via the RIFF container
 ///
-/// For any other format the bytes are returned unchanged (best-effort).
+/// For any other format (e.g. HEIC/HEIF, RAW) the bytes are returned
+/// unchanged **and a warning is emitted** so that callers relying on
+/// `strip_exif = true` are not silently misled.
 pub fn strip_metadata(data: &[u8]) -> Vec<u8> {
     if let Ok(mut jpeg) = img_parts::jpeg::Jpeg::from_bytes(Bytes::copy_from_slice(data)) {
         jpeg.set_exif(None);
@@ -35,6 +38,14 @@ pub fn strip_metadata(data: &[u8]) -> Vec<u8> {
         return webp.encoder().bytes().to_vec();
     }
 
+    // Fallthrough: format not recognised by any of the strippers above (e.g.
+    // HEIC/HEIF, RAW files).  Metadata is NOT removed; warn so callers with
+    // `strip_exif = true` know their expectation was not met.
+    img_warn!(
+        "strip_metadata: unrecognised format ({} bytes) — \
+         metadata NOT stripped; sensitive EXIF data may be present in the output",
+        data.len()
+    );
     data.to_vec()
 }
 

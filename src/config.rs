@@ -29,7 +29,11 @@ use crate::resize::OutputResolution;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// Encoding quality **1 – 100** (higher = better quality, larger file).
-    /// Clamped to the valid range on assignment.  Default: `80`.
+    /// Clamped to the valid range by the builder setter.  Default: `80`.
+    ///
+    /// **Note:** if this field is set directly (bypassing the builder), values
+    /// outside 1–100 are silently clamped to the valid range at encode time.
+    /// `config.quality` may therefore not reflect the quality actually used.
     pub quality: u8,
 
     /// Alpha-channel encoding quality **1 – 100**.
@@ -38,10 +42,17 @@ pub struct Config {
     /// from the colour channels.  Set higher than `quality` (e.g. 95) to
     /// keep the alpha channel visually lossless while compressing the colour
     /// data more aggressively.  Clamped to `1 – 100`.  Default: `80`.
+    ///
+    /// **Note:** if this field is set directly (bypassing the builder), values
+    /// outside 1–100 are silently clamped to the valid range at encode time.
     pub alpha_quality: u8,
 
     /// Encoder speed **1 – 10** (higher = faster, slightly larger file).
-    /// Clamped to the valid range on assignment.  Default: `6`.
+    /// Clamped to the valid range by the builder setter.  Default: `6`.
+    ///
+    /// **Note:** if this field is set directly (bypassing the builder), values
+    /// outside 1–10 are silently clamped to the valid range at encode time.
+    /// `config.speed` may therefore not reflect the speed actually used.
     pub speed: u8,
 
     /// Strip all EXIF, IPTC, and XMP metadata from the output.
