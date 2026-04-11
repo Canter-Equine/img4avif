@@ -87,9 +87,7 @@ const HEIF_BRANDS: &[[u8; 4]] = &[
 fn is_heif_ftyp(data: &[u8]) -> bool {
     data.len() >= 12
         && data[4..8] == *b"ftyp"
-        && HEIF_BRANDS
-            .iter()
-            .any(|brand| *brand == data[8..12])
+        && HEIF_BRANDS.iter().any(|brand| *brand == data[8..12])
 }
 
 /// Decode `data` into a [`RawImage`].

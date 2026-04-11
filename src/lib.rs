@@ -302,9 +302,32 @@ impl Converter {
             }
         };
 
+        // Use a single guard for all encode steps so the limit applies to
+        // the total RSS increase accumulated across all resizes and encodes.
+        let guard = MemoryGuard::new(self.config.memory_limit_bytes);
+
         let mut outputs = Vec::with_capacity(resolutions.len());
         for &resolution in resolutions {
+            #[allow(clippy::question_mark)] // explicit if-let preserves the log call
+            if let Err(e) = guard.check() {
+                img_error!(
+                    "convert_multi: pre-resize memory guard failed for {:?}: {}",
+                    resolution,
+                    e
+                );
+                return Err(e);
+            }
             let resized = resize::resize_raw_image(&raw, resolution)?;
+
+            #[allow(clippy::question_mark)]
+            if let Err(e) = guard.check() {
+                img_error!(
+                    "convert_multi: pre-encode memory guard failed for {:?}: {}",
+                    resolution,
+                    e
+                );
+                return Err(e);
+            }
             let data = match self.encode_raw(&resized) {
                 Ok(d) => d,
                 Err(e) => {
@@ -496,7 +519,7 @@ mod tests {
         let err = converter.convert(garbage).unwrap_err();
         assert!(matches!(
             err,
-            Error::Decode(_) | Error::UnsupportedFormat(_)
+            Error::Decode(_) | Error::UnsupportedFormat(_) | Error::MemoryExceeded { .. }
         ));
     }
 
@@ -604,7 +627,7 @@ mod tests {
         let err = converter.convert_multi(b"not an image").unwrap_err();
         assert!(matches!(
             err,
-            Error::Decode(_) | Error::UnsupportedFormat(_)
+            Error::Decode(_) | Error::UnsupportedFormat(_) | Error::MemoryExceeded { .. }
         ));
     }
 }

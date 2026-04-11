@@ -322,7 +322,7 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
     // Scale factor from 16-bit (0-65535) to 10-bit (0-1023).
     const SCALE: f32 = MAX10 / 65535.0;
     const SHIFT: f32 = 512.0; // 2^(depth−1) = 2^9 = 512: unsigned chroma midpoint for 10-bit full-range YCbCr
-                               // (ITU-R BT.601 unsigned representation; differs from 0.5×MAX10 = 511.5)
+                              // (ITU-R BT.601 unsigned representation; differs from 0.5×MAX10 = 511.5)
     const KR: f32 = 0.2990;
     const KG: f32 = 0.5870;
     const KB: f32 = 0.1140;

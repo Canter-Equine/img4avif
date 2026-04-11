@@ -6,19 +6,34 @@ use crate::Error;
 /// [`Error::MemoryExceeded`] if the limit is breached so the caller can abort
 /// cleanly rather than hitting OOM.
 ///
+/// The guard measures the **increase** in RSS from the baseline recorded at
+/// construction time, rather than the absolute RSS.  This prevents the
+/// pre-existing process baseline (e.g. loaded shared libraries or other
+/// in-flight tasks) from falsely triggering the limit.
+///
 /// Platform support:
 /// - **Linux** — reads `VmRSS` from `/proc/self/status`
 /// - **macOS** — parses `vm_stat` (development only; Lambda runs Linux)
 /// - **Other** — silently skips the check (fail-open)
 pub struct MemoryGuard {
     limit_bytes: u64,
+    /// RSS snapshot taken when the guard was created, used as the delta baseline.
+    baseline_bytes: u64,
 }
 
 impl MemoryGuard {
     /// Create a guard with the given limit.  Pass `u64::MAX` to disable.
+    ///
+    /// The current RSS is recorded as the baseline; [`check`](Self::check)
+    /// will fire only when the RSS *increase* from this baseline meets or
+    /// exceeds `limit_bytes`.
     #[must_use]
     pub fn new(limit_bytes: u64) -> Self {
-        Self { limit_bytes }
+        let baseline_bytes = Self::current_rss_bytes().unwrap_or(0);
+        Self {
+            limit_bytes,
+            baseline_bytes,
+        }
     }
 
     /// Return the current RSS in bytes, or `None` on unsupported platforms.
@@ -34,16 +49,24 @@ impl MemoryGuard {
         None
     }
 
-    /// Return `Ok(())` if RSS is within the limit or unreadable (fail-open).
+    /// Return `Ok(())` if the RSS increase since construction is within the
+    /// limit, or if RSS is unreadable (fail-open).
+    ///
+    /// The check compares the *increase* in RSS from the baseline recorded at
+    /// construction time against `limit_bytes`.  This prevents a high
+    /// pre-existing process RSS (e.g. from other loaded libraries or parallel
+    /// test threads) from falsely triggering the guard on small inputs.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::MemoryExceeded`] when measured RSS exceeds the limit.
+    /// Returns [`Error::MemoryExceeded`] when `current_rss − baseline_rss ≥ limit_bytes`.
+    /// A limit of `0` therefore always triggers the guard (any delta meets the limit).
     pub fn check(&self) -> Result<(), Error> {
         if let Some(rss) = Self::current_rss_bytes() {
-            if rss > self.limit_bytes {
+            let delta = rss.saturating_sub(self.baseline_bytes);
+            if delta >= self.limit_bytes {
                 return Err(Error::MemoryExceeded {
-                    used_mb: rss / (1024 * 1024),
+                    used_mb: delta / (1024 * 1024),
                     limit_mb: self.limit_bytes / (1024 * 1024),
                 });
             }
