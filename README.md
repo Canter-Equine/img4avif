@@ -6,19 +6,13 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MSRV: 1.70](https://img.shields.io/badge/MSRV-1.70-blue.svg)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
 
-A high-performance, memory-safe Rust library that converts **JPEG, PNG, WebP,
-and HEIC/HEIF** images to **AVIF** format using the pure-Rust `rav1e` AV1
-encoder.  16-bit (HDR10) PNG inputs are accepted natively.
+A fast, memory-safe Rust library that converts **JPEG, PNG, WebP, and HEIC/HEIF**
+images to **AVIF** using the pure-Rust `rav1e` AV1 encoder. It also supports
+16-bit PNG input for HDR10-style images.
 
-Engineered specifically for **cost-sensitive, high-volume serverless workloads**
+
+Optimized for **cost-sensitive, high-volume serverless workloads**
 on AWS Lambda (Linux x86_64 / aarch64) with:
-
-- **Zero unsafe code** in library source
-- **Built-in memory guard** — aborts at configurable peak RSS (default 512 MiB)
-- **Automatic EXIF stripping** — reduces output size and Lambda bandwidth cost
-- **Pure Rust core** — no C library dependencies in the default build
-- **Sub-800 ms cold-start** on a 1769 MB Lambda instance
-- **Up to 50 MP / 50 MB** input supported with default settings
 
 ---
 
@@ -54,7 +48,7 @@ img2avif = "0.1"
 
 ---
 
-## Quick start
+## Quick Start
 
 ```rust
 use img2avif::{Config, Converter};
@@ -76,7 +70,7 @@ fn main() -> Result<(), img2avif::Error> {
 }
 ```
 
-### Lambda cost-optimised preset
+### Lambda Cost Optimised Preset
 
 ```rust
 use img2avif::{Config, Converter};
@@ -88,7 +82,7 @@ let avif = converter.convert(&input_bytes)?;
 
 ---
 
-## Supported input formats
+## Supported Input Formats
 
 | Format | Extensions | Feature flag | AVIF bit-depth |
 |--------|-----------|-------------|---------------|
@@ -98,7 +92,7 @@ let avif = converter.convert(&input_bytes)?;
 | WebP | `.webp` | *(always on)* | 10-bit (ravif auto) |
 | HEIC / HEIF | `.heic`, `.heif` | `heic-experimental` | 10-bit (ravif auto) |
 
-Format detection is **magic-byte based** — file extensions are not trusted.
+Format detection uses magic bytes, so file extensions are not trusted.
 
 ---
 
@@ -107,15 +101,8 @@ Format detection is **magic-byte based** — file extensions are not trusted.
 ### 16-bit PNG inputs
 
 16-bit PNG files (the standard delivery format for HDR10 still images) are
-decoded with full precision and encoded as genuine **10-bit AVIF** using
-`encode_raw_planes_10_bit`.  Each 16-bit channel (0 – 65 535) is scaled to
-10-bit (0 – 1 023) and then converted to YCbCr BT.601, preserving **1 024
-distinct levels per channel** instead of the 256 available from 8-bit output.
-
-> **CICP metadata note:** The AVIF colour primaries and transfer
-> characteristics will reflect BT.601 / sRGB because ravif 0.13 hardcodes
-> those values in the raw-planes encoder path.  Full HDR10 CICP metadata
-> (BT.2020 primaries + PQ / HLG transfer) requires a future `rav1e` upgrade.
+decoded at full precision and converted to10-bit AVIF using
+`encode_raw_planes_10_bit` to preserve more detail than 8-but ouput
 
 ### HEIC with HDR10 metadata
 
@@ -132,7 +119,7 @@ img2avif = { version = "0.1", features = ["heic-experimental"] }
 
 ---
 
-## Configuration reference
+## Configuration Reference
 
 The `Config` builder lets you balance **image quality**, **file size**, and
 **encode speed**:
@@ -168,7 +155,7 @@ let config = Config::default()
 
 ---
 
-## Output resolution control
+## Output Resolution Control
 
 By default `img2avif` encodes images at their original resolution.  Use
 `Config::output_resolutions` with any combination of `OutputResolution`
@@ -223,24 +210,16 @@ for out in &outputs {
 
 ## EXIF / metadata handling
 
-**Default behaviour: all metadata is stripped.**
+By default, img2avif removes all metadata.
 
-EXIF, IPTC, and XMP metadata is removed from the output to:
-- Reduce file size (lower S3 storage and CloudFront transfer cost)
-- Eliminate privacy risks from accidentally exposing GPS coordinates
+If you want to keep metadata, set `strip_exif(false)`:
+`:
 
-To preserve metadata, set `strip_exif(false)`:
-
-```rust
-// ⚠️  Warning: metadata retention increases output size and Lambda cost.
-let config = Config::default().strip_exif(false);
-```
-
-A warning is printed to `stderr` at conversion time when `strip_exif = false`.
+A warning will be printed to `stderr` at conversion time when `strip_exif = false`.
 
 ---
 
-## Memory guard
+## Memory Guard
 
 The [`MemoryGuard`] checks RSS before and after decoding.  If peak RSS
 exceeds `memory_limit_bytes` (default **512 MiB**) conversion is aborted with
@@ -357,7 +336,7 @@ Measurements on an `m6i.large` EC2 (2 vCPU, 8 GB, Amazon Linux 2023,
 
 ---
 
-## AWS Lambda deployment
+## AWS Lambda Deployment
 
 ### 1. Build for Lambda (x86_64)
 
@@ -371,7 +350,7 @@ For aarch64 (Graviton2, typically cheaper):
 cargo build --release --target aarch64-unknown-linux-musl
 ```
 
-### 2. Lambda Layer configuration
+### 2. Lambda Layer Configuration
 
 ```yaml
 # template.yaml (AWS SAM)
@@ -384,15 +363,13 @@ Environment:
     IMG2AVIF_QUALITY: "80"
 ```
 
-### 3. Memory configuration
+### 3. Memory and Cost Estimates
 
 | Image size | Recommended Lambda memory |
 |-----------|--------------------------|
 | ≤ 8 MP | 256 MB |
 | ≤ 20 MP | 512 MB |
 | ≤ 50 MP | 768 MB |
-
-### 4. Cost estimation model
 
 At $0.0000166667 per GB-second (x86_64, `us-east-1`):
 
@@ -404,18 +381,10 @@ At $0.0000166667 per GB-second (x86_64, `us-east-1`):
 
 ---
 
-## Security
-
-- **Zero unsafe code** in `img2avif` source (enforced by `#![forbid(unsafe_code)]`)
-- All parsing errors return `Result<_, Error>` — the library **never panics** on malformed input
-- Dependencies audited with `cargo audit` in CI
-- No GPL transitive dependencies in the default build (see LGPL note for `heic-experimental`)
-
----
-
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+- Licensed under the [Apache License, Version 2.0](LICENSE).
+- No GPL transitive dependencies in the default build (see LGPL note for `heic-experimental`)
 
 This product includes third-party components whose notices are listed in
 [NOTICE](NOTICE).  The most notable is `ravif` (BSD-3-Clause), which provides
