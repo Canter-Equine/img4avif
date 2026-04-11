@@ -8,7 +8,7 @@ use crate::Error;
 ///
 /// Platform support:
 /// - **Linux** — reads `VmRSS` from `/proc/self/status`
-/// - **macOS** — parses `vm_stat` (development only; Lambda runs Linux)
+/// - **macOS** — queries process RSS via `ps` (development only; Lambda runs Linux)
 /// - **Other** — silently skips the check (fail-open)
 pub struct MemoryGuard {
     limit_bytes: u64,

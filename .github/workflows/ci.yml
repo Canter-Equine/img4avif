@@ -54,13 +54,13 @@ jobs:
         include:
           # Verify MSRV on Linux only (saves CI minutes).
           - os: ubuntu-latest
-            rust: "1.70"
+            rust: "1.85"
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust ${{ matrix.rust }}
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
 

@@ -2,7 +2,7 @@
 name = "img2avif"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.85"
 authors = ["Canter-Equine"]
 description = "Serverless-optimized image conversion: JPEG/PNG/WebP/HEIC → AVIF with HDR10 input support (pure Rust, Lambda-ready)"
 license = "Apache-2.0"
