@@ -53,7 +53,8 @@ raw-experimental = ["dep:rawloader"]
 
 [dependencies]
 thiserror = "2.0"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+# Pinned to preserve the declared Rust 1.85 MSRV until a newer compatible patch exists.
+image = { version = "=0.25.9", default-features = false, features = ["jpeg", "png", "webp"] }
 ravif = { version = "0.13", default-features = false, features = ["threading"] }
 rgb = "0.8"
 img-parts = "0.3"
@@ -67,7 +68,7 @@ rawloader = { version = "0.37", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-image = { version = "0.25", features = ["jpeg", "png"] }
+image = { version = "=0.25.9", features = ["jpeg", "png"] }
 
 [profile.release]
 opt-level = "z"      # minimise binary size

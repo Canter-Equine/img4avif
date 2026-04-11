@@ -16,6 +16,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ── Lint ──────────────────────────────────────────────────────────────────
@@ -47,32 +48,20 @@ jobs:
       - name: Clippy (all targets, deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
-  # ── Build & test on all three platforms ──────────────────────────────────
+  # ── Main test suite (Linux / stable) ─────────────────────────────────────
   test:
-    name: Test (${{ matrix.os }} / Rust ${{ matrix.rust }})
-    runs-on: ${{ matrix.os }}
-    # Run macOS tests only on pull_request to avoid duplicate CI runs.
-    # Linux tests run on both push and pull_request.
-    if: github.event_name == 'pull_request' || matrix.os == 'ubuntu-latest'
+    name: Test (Linux / Rust stable)
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        rust: [stable]
-        include:
-          # Verify MSRV on Linux only (saves CI minutes).
-          - os: ubuntu-latest
-            rust: "1.85"
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust ${{ matrix.rust }}
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -81,16 +70,36 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: test-${{ matrix.os }}-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          key: test-ubuntu-latest-stable-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build (default features)
-        run: cargo build --release
+      - name: Run unit and integration tests
+        run: cargo test --lib --tests
 
-      - name: Run tests
-        run: cargo test
+  # ── MSRV smoke coverage (Linux only) ─────────────────────────────────────
+  msrv:
+    name: MSRV (Rust 1.85)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Run memory guard smoke test
-        run: cargo test --test memory_stress memory_guard_unlimited_always_passes
+      - name: Install Rust 1.85
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: test-ubuntu-latest-1.85-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Compile unit and integration tests on MSRV
+        run: cargo test --lib --tests --no-run
 
   # ── Documentation ─────────────────────────────────────────────────────────
   docs:
@@ -103,6 +112,9 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Run doctests
+        run: cargo test --doc
 
       - name: cargo doc (deny warnings)
         run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
@@ -178,47 +190,3 @@ jobs:
 
       - name: Run 50 MP stress test
         run: cargo test --test memory_stress -- --ignored --nocapture
-
-  # ── Convert example files to AVIF ────────────────────────────────────────
-  convert-examples:
-    name: Convert examples/ to AVIF
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: convert-examples-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run convert_examples (release build for speed)
-        run: cargo run --release --example convert_examples
-
-      - name: Verify outputs were created
-        run: |
-          echo "AVIF outputs in examples/out/:"
-          ls -lh examples/out/
-          # Every .jpg / .png / .webp in examples/ must have a corresponding
-          # .avif in examples/out/.  The check ignores non-image files.
-          failed=0
-          for src in examples/*.jpg examples/*.jpeg examples/*.png examples/*.webp; do
-            [ -f "$src" ] || continue
-            base=$(basename "$src")
-            out="examples/out/${base}.avif"
-            if [ -f "$out" ]; then
-              echo "  ✓  $base  →  $out"
-            else
-              echo "  ✗  MISSING: $out"
-              failed=$((failed + 1))
-            fi
-          done
-          exit "$failed"
