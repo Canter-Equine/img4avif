@@ -249,7 +249,7 @@ fn encode_8bit(
     alpha_quality: u8,
 ) -> Result<Vec<u8>, Error> {
     use ravif::{EncodedImage, Encoder, Img};
-    use rgb::RGBA8;
+    use rgb::FromSlice;
 
     img_debug!(
         "encode_8bit: {}×{} RGBA8 → rav1e encode_rgba",
@@ -257,12 +257,8 @@ fn encode_8bit(
         height
     );
 
-    let rgba: Vec<RGBA8> = pixels
-        .chunks_exact(4)
-        .map(|c| RGBA8::new(c[0], c[1], c[2], c[3]))
-        .collect();
-
-    let img = Img::new(rgba.as_slice(), width as usize, height as usize);
+    let rgba = pixels.as_rgba();
+    let img = Img::new(rgba, width as usize, height as usize);
 
     Encoder::new()
         .with_quality(f32::from(quality.clamp(1, 100)))

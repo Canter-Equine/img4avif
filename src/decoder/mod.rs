@@ -292,28 +292,12 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
         Error::Decode("HEIF image has no interleaved RGBA plane".into())
     })?;
 
-    // `interleaved.stride` is the actual number of bytes per row (may include
-    // padding).  Strip padding so the pixel buffer is exactly `width * 4` bytes
-    // per row.
-    let row_bytes = width as usize * 4;
-    let stride = interleaved.stride; // bytes per row, not pixels
-    if stride != row_bytes {
-        img_debug!(
-            "decode_heif: row stride {}  != expected {} — stripping padding",
-            stride,
-            row_bytes
-        );
-    }
-    let pixels: Vec<u8> = if stride == row_bytes {
-        interleaved.data.to_vec()
-    } else {
-        interleaved
-            .data
-            .chunks(stride)
-            .flat_map(|row| &row[..row_bytes])
-            .copied()
-            .collect()
-    };
+    let pixels =
+        heif_interleaved_to_rgba_pixels(interleaved.data, width, height, interleaved.stride)
+            .map_err(|e| {
+                img_error!("decode_heif: malformed interleaved plane: {}", e);
+                e
+            })?;
 
     img_info!("decode_heif: {}×{} decoded OK", width, height);
 
@@ -322,4 +306,88 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
         height,
         pixels: Pixels::Rgba8(pixels),
     })
+}
+
+#[cfg(any(feature = "heic-experimental", test))]
+fn heif_interleaved_to_rgba_pixels(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+) -> Result<Vec<u8>, Error> {
+    // `stride` is bytes per row (may include padding). We require enough bytes
+    // to safely copy exactly `width * 4` bytes per row without panicking.
+    let row_bytes = width as usize * 4;
+    let rows = height as usize;
+
+    if stride < row_bytes {
+        return Err(Error::Decode(format!(
+            "HEIF interleaved stride {stride} is smaller than row size {row_bytes}"
+        )));
+    }
+
+    let expected_len = stride
+        .checked_mul(rows)
+        .ok_or_else(|| Error::Decode("HEIF interleaved plane size overflow".into()))?;
+    if data.len() < expected_len {
+        return Err(Error::Decode(format!(
+            "HEIF interleaved plane too short: got {} bytes, expected at least {} \
+             for {} rows with stride {}",
+            data.len(),
+            expected_len,
+            rows,
+            stride
+        )));
+    }
+
+    if stride == row_bytes {
+        return Ok(data[..expected_len].to_vec());
+    }
+
+    img_debug!(
+        "decode_heif: row stride {} != expected {} — stripping per-row padding",
+        stride,
+        row_bytes
+    );
+
+    let out_len = row_bytes
+        .checked_mul(rows)
+        .ok_or_else(|| Error::Decode("HEIF RGBA output size overflow".into()))?;
+    let mut pixels = Vec::with_capacity(out_len);
+    for y in 0..rows {
+        let row_start = y * stride;
+        let row_end = row_start + row_bytes;
+        pixels.extend_from_slice(&data[row_start..row_end]);
+    }
+    Ok(pixels)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn heif_stride_smaller_than_row_is_decode_error() {
+        let err = heif_interleaved_to_rgba_pixels(&[0; 8], 3, 1, 8).unwrap_err();
+        assert!(matches!(err, Error::Decode(_)));
+    }
+
+    #[test]
+    fn heif_short_plane_is_decode_error() {
+        let err = heif_interleaved_to_rgba_pixels(&[0; 11], 2, 2, 6).unwrap_err();
+        assert!(matches!(err, Error::Decode(_)));
+    }
+
+    #[test]
+    fn heif_valid_padding_layout_is_compacted() {
+        let src = vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 9, // row 0 (8 bytes RGBA + 2 bytes padding)
+            10, 11, 12, 13, 14, 15, 16, 17, 8, 8, // row 1
+        ];
+        let out = heif_interleaved_to_rgba_pixels(&src, 2, 2, 10).unwrap();
+        assert_eq!(
+            out,
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17]
+        );
+    }
 }
