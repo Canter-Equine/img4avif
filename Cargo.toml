@@ -79,3 +79,8 @@ panic = "abort"      # smaller binary, no unwinding overhead
 [[bench]]
 name = "lambda_bench"
 harness = false
+
+[[example]]
+name = "poc"
+# The example uses `image` (a dev-dependency) to generate synthetic test images.
+# It does not require any additional feature flags to run.

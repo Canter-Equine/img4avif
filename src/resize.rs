@@ -278,10 +278,14 @@ mod tests {
 
     #[test]
     fn mismatched_rgba8_buffer_returns_internal_error() {
+        // Declare a wide image (width > 1080) so the resize path is actually
+        // triggered and can detect the buffer/dimension mismatch.
+        // A width of 100 would be skipped (no downscale needed), so the error
+        // would never occur — that was the pre-existing bug in this test.
         let raw = RawImage {
-            width: 100,
+            width: 2000,
             height: 100,
-            // Only 1 pixel worth of data instead of 10000 pixels
+            // Only 1 pixel worth of data instead of 2000 * 100 pixels
             pixels: Pixels::Rgba8(vec![255u8, 0, 0, 255]),
         };
         let err = resize_raw_image(raw, OutputResolution::Width1080).unwrap_err();
