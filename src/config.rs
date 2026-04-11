@@ -75,7 +75,7 @@ pub struct Config {
 
     /// Which output resolution(s) to produce.
     ///
-    /// - A **single entry** (the default) controls what [`Converter::convert`]
+    /// - A **single entry** (the default) controls what [`crate::Converter::convert`]
     ///   produces.  Defaults to `[OutputResolution::Original]` (no resize).
     /// - **Multiple entries** are used by
     ///   [`Converter::convert_multi`](crate::Converter::convert_multi), which
@@ -170,7 +170,7 @@ impl Config {
     ///   decodes the image **once** and encodes a separate AVIF file for each
     ///   requested resolution.
     ///
-    /// If an empty `Vec` is supplied, [`Converter::convert`] falls back to
+    /// If an empty `Vec` is supplied, [`crate::Converter::convert`] falls back to
     /// [`OutputResolution::Original`] (no resize).
     ///
     /// # Example
