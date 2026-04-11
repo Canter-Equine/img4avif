@@ -191,7 +191,7 @@ jobs:
           key: ${{ runner.os }}-stable-aarch64-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cross-compile (release, no run)
-        run: cargo build --target aarch64-unknown-linux-gnu --release --no-run
+        run: cargo build --target aarch64-unknown-linux-gnu --release
 
   memory-stress:
     name: 50 MP memory stress test
