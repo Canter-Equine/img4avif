@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/img2avif/badge.svg)](https://docs.rs/img2avif)
 [![CI](https://github.com/Canter-Equine/img2avif/actions/workflows/ci.yml/badge.svg)](https://github.com/Canter-Equine/img2avif/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![MSRV: 1.70](https://img.shields.io/badge/MSRV-1.70-blue.svg)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
+[![MSRV: 1.88](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://blog.rust-lang.org/2025/02/20/Rust-1.88.0.html)
 
 A high-performance, memory-safe Rust library that converts **JPEG, PNG, WebP,
 and HEIC/HEIF** images to **AVIF** format using the pure-Rust `rav1e` AV1
@@ -44,12 +44,12 @@ on AWS Lambda (Linux x86_64 / aarch64) with:
 
 ```toml
 [dependencies]
-img2avif = "0.1"
+img2avif = "0.2"
 ```
 
 ### Minimum supported Rust version (MSRV)
 
-`img2avif` requires **Rust 1.70** or later.  The MSRV is enforced in
+`img2avif` requires **Rust 1.88** or later.  The MSRV is enforced in
 `Cargo.toml` and tested in CI.
 
 ---
@@ -124,7 +124,7 @@ Many smartphone cameras produce HDR10-tagged HEIC files.  Enable the
 
 ```toml
 [dependencies]
-img2avif = { version = "0.1", features = ["heic-experimental"] }
+img2avif = { version = "0.2", features = ["heic-experimental"] }
 ```
 
 > ⚠️  Requires `libheif` installed on the system at link time.  See
@@ -278,7 +278,7 @@ subscriber](https://docs.rs/log#available-logging-implementations):
 
 ```toml
 [dependencies]
-img2avif = { version = "0.1", features = ["dev-logging"] }
+img2avif = { version = "0.2", features = ["dev-logging"] }
 env_logger = "0.11"
 ```
 
@@ -299,7 +299,7 @@ When `dev-logging` is **disabled** (the default), all log macro calls expand
 to `()` — the compiler removes them entirely, so there is **zero runtime cost**.
 
 > ⚠️  **HEIC / RAW support is experimental and opt-in.**  The pure-Rust HEIC
-> ecosystem is not yet production-ready (as of Rust 1.70 / April 2024).  The
+> ecosystem is not yet production-ready (as of Rust 1.88 / 2025).  The
 > `heic-experimental` flag introduces a C dependency unsuitable for stock
 > Lambda layers.
 >
@@ -312,11 +312,11 @@ to `()` — the compiler removes them entirely, so there is **zero runtime cost*
 ```toml
 # Enable experimental HEIC/HEIF support (requires libheif C library):
 [dependencies]
-img2avif = { version = "0.1", features = ["heic-experimental"] }
+img2avif = { version = "0.2", features = ["heic-experimental"] }
 
 # Enable experimental RAW support (pure Rust, no C):
 [dependencies]
-img2avif = { version = "0.1", features = ["raw-experimental"] }
+img2avif = { version = "0.2", features = ["raw-experimental"] }
 ```
 
 ---

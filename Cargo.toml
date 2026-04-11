@@ -1,8 +1,8 @@
 [package]
 name = "img2avif"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["Canter-Equine"]
 description = "Serverless-optimized image conversion: JPEG/PNG/WebP/HEIC → AVIF with HDR10 input support (pure Rust, Lambda-ready)"
 license = "Apache-2.0"
@@ -31,7 +31,7 @@ default = []
 # Usage:
 #
 #   [dependencies]
-#   img2avif = { version = "0.1", features = ["dev-logging"] }
+#   img2avif = { version = "0.2", features = ["dev-logging"] }
 #
 # Then in your application initialise a subscriber, e.g.:
 #

@@ -54,7 +54,7 @@ jobs:
         include:
           # Verify MSRV on Linux only (saves CI minutes).
           - os: ubuntu-latest
-            rust: "1.85"
+            rust: "1.88"
 
     steps:
       - uses: actions/checkout@v4
