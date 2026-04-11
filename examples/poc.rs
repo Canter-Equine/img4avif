@@ -125,8 +125,11 @@ fn make_kayak_jpeg(width: u32, height: u32) -> Vec<u8> {
     });
 
     let mut buf = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
-        .expect("JPEG encode failed");
+    img.write_to(
+        &mut std::io::Cursor::new(&mut buf),
+        image::ImageFormat::Jpeg,
+    )
+    .expect("JPEG encode failed");
     buf
 }
 
@@ -155,19 +158,20 @@ fn make_football_jpeg(width: u32, height: u32) -> Vec<u8> {
         let base = 80.0 + fy * 100.0;
 
         // Fine-grain texture to simulate camera noise and jersey mesh.
-        let grain =
-            ((x.wrapping_mul(6737).wrapping_add(y.wrapping_mul(3491))) % 31) as f32 - 15.0;
+        let grain = ((x.wrapping_mul(6737).wrapping_add(y.wrapping_mul(3491))) % 31) as f32 - 15.0;
 
         let luma =
-            ((base + grain) * subject_mask + 200.0 * (1.0 - subject_mask)).clamp(0.0, 255.0)
-                as u8;
+            ((base + grain) * subject_mask + 200.0 * (1.0 - subject_mask)).clamp(0.0, 255.0) as u8;
 
         Rgb([luma, luma, luma])
     });
 
     let mut buf = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
-        .expect("JPEG encode failed");
+    img.write_to(
+        &mut std::io::Cursor::new(&mut buf),
+        image::ImageFormat::Jpeg,
+    )
+    .expect("JPEG encode failed");
     buf
 }
 

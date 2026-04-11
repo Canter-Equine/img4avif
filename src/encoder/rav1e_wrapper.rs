@@ -86,10 +86,22 @@ pub fn encode_avif(
     );
 
     let avif = match &image.pixels {
-        Pixels::Rgba8(bytes) => encode_8bit(image.width, image.height, bytes, quality, speed, alpha_quality),
-        Pixels::Rgba16(samples) => {
-            encode_16bit(image.width, image.height, samples, quality, speed, alpha_quality)
-        }
+        Pixels::Rgba8(bytes) => encode_8bit(
+            image.width,
+            image.height,
+            bytes,
+            quality,
+            speed,
+            alpha_quality,
+        ),
+        Pixels::Rgba16(samples) => encode_16bit(
+            image.width,
+            image.height,
+            samples,
+            quality,
+            speed,
+            alpha_quality,
+        ),
     }?;
 
     validate_avif_output(&avif, image.width, image.height)?;
@@ -120,7 +132,8 @@ fn validate_avif_output(bytes: &[u8], width: u32, height: u32) -> Result<(), Err
     if bytes.is_empty() {
         img_error!(
             "encode_avif: encoder returned empty output for {}×{} image",
-            width, height
+            width,
+            height
         );
         return Err(Error::Encode(
             "AVIF encoder produced empty output — this is a bug; please report it".into(),
@@ -130,7 +143,10 @@ fn validate_avif_output(bytes: &[u8], width: u32, height: u32) -> Result<(), Err
     if bytes.len() < MIN_AVIF_BYTES {
         img_error!(
             "encode_avif: output too short ({} bytes, expected ≥ {}) for {}×{} image",
-            bytes.len(), MIN_AVIF_BYTES, width, height
+            bytes.len(),
+            MIN_AVIF_BYTES,
+            width,
+            height
         );
         return Err(Error::Encode(format!(
             "AVIF encoder produced truncated output ({} bytes, minimum valid AVIF is {} bytes)",
@@ -166,7 +182,9 @@ fn validate_avif_output(bytes: &[u8], width: u32, height: u32) -> Result<(), Err
         img_warn!(
             "encode_avif: output is suspiciously small ({} bytes) for a {}×{} image — \
              verify the AVIF is decodable",
-            bytes.len(), width, height
+            bytes.len(),
+            width,
+            height
         );
     }
 
@@ -185,7 +203,9 @@ fn compression_ratio(image: &RawImage, output_bytes: usize) -> f64 {
     }
     // Use u64 → f64; safe for any realistic image size (well under 2^52 bytes).
     #[allow(clippy::cast_precision_loss)]
-    { input_bytes as f64 / output_bytes as f64 }
+    {
+        input_bytes as f64 / output_bytes as f64
+    }
 }
 
 /// Encode 8-bit RGBA pixels using `ravif::Encoder::encode_rgba`.
@@ -200,7 +220,11 @@ fn encode_8bit(
     use ravif::{EncodedImage, Encoder, Img};
     use rgb::{FromSlice, RGBA8};
 
-    img_debug!("encode_8bit: {}×{} RGBA8 → rav1e encode_rgba", width, height);
+    img_debug!(
+        "encode_8bit: {}×{} RGBA8 → rav1e encode_rgba",
+        width,
+        height
+    );
 
     // Cast the packed byte slice to `&[RGBA8]` without copying.  This is safe
     // because `RGBA8` is `#[repr(C)]` with four `u8` fields (same layout as
@@ -240,7 +264,8 @@ fn encode_16bit(
 
     img_debug!(
         "encode_16bit: {}×{} RGBA16 → rav1e encode_raw_planes_10_bit (BT.601 YCbCr)",
-        width, height
+        width,
+        height
     );
 
     // Each pixel is [R, G, B, A] as u16 (0-65535).
@@ -322,7 +347,11 @@ mod tests {
     fn solid_rgba8(width: u32, height: u32, r: u8, g: u8, b: u8, a: u8) -> RawImage {
         let pixel = [r, g, b, a];
         let pixels = pixel.repeat(width as usize * height as usize);
-        RawImage { width, height, pixels: Pixels::Rgba8(pixels) }
+        RawImage {
+            width,
+            height,
+            pixels: Pixels::Rgba8(pixels),
+        }
     }
 
     #[test]
@@ -362,4 +391,3 @@ mod tests {
         assert!(validate_avif_output(&valid, 4, 4).is_ok());
     }
 }
-

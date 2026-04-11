@@ -88,7 +88,10 @@ impl OutputResolution {
 /// Returns [`Error::Internal`] if the pixel buffer does not match the
 /// declared image dimensions.  This should never happen with images produced
 /// by the built-in decoders; if it does, please report a bug.
-pub(crate) fn resize_raw_image(raw: RawImage, resolution: OutputResolution) -> Result<RawImage, Error> {
+pub(crate) fn resize_raw_image(
+    raw: RawImage,
+    resolution: OutputResolution,
+) -> Result<RawImage, Error> {
     let Some(target_width) = resolution.max_width() else {
         // OutputResolution::Original — return the image unchanged.
         return Ok(raw);
@@ -97,12 +100,18 @@ pub(crate) fn resize_raw_image(raw: RawImage, resolution: OutputResolution) -> R
     if raw.width <= target_width {
         img_debug!(
             "resize: {}×{} is already within {}px target — skipping",
-            raw.width, raw.height, target_width
+            raw.width,
+            raw.height,
+            target_width
         );
         return Ok(raw);
     }
 
-    let RawImage { width, height, pixels } = raw;
+    let RawImage {
+        width,
+        height,
+        pixels,
+    } = raw;
 
     let new_width = target_width;
     // Proportional height, rounded to nearest pixel.  Use u64 arithmetic to
@@ -115,16 +124,21 @@ pub(crate) fn resize_raw_image(raw: RawImage, resolution: OutputResolution) -> R
 
     img_info!(
         "resize: {}×{} → {}×{} ({} target width, Lanczos3)",
-        width, height, new_width, new_height, target_width
+        width,
+        height,
+        new_width,
+        new_height,
+        target_width
     );
 
     match pixels {
         Pixels::Rgba8(data) => {
-            let buf = image::RgbaImage::from_raw(width, height, data)
-                .ok_or_else(|| Error::Internal(format!(
+            let buf = image::RgbaImage::from_raw(width, height, data).ok_or_else(|| {
+                Error::Internal(format!(
                     "RGBA8 pixel buffer size does not match declared dimensions {width}×{height}; \
                      this is a bug — please report it"
-                )))?;
+                ))
+            })?;
             let resized = image::imageops::resize(
                 &buf,
                 new_width,
@@ -289,7 +303,10 @@ mod tests {
             pixels: Pixels::Rgba8(vec![255u8, 0, 0, 255]),
         };
         let err = resize_raw_image(raw, OutputResolution::Width1080).unwrap_err();
-        assert!(matches!(err, Error::Internal(_)), "expected Error::Internal, got {err:?}");
+        assert!(
+            matches!(err, Error::Internal(_)),
+            "expected Error::Internal, got {err:?}"
+        );
     }
 
     #[test]
@@ -300,9 +317,16 @@ mod tests {
             pixels: Pixels::Rgba16(vec![65535u16, 0, 0, 65535]),
         };
         // Force a downscale by declaring width as 2000 with target 1080
-        let raw = RawImage { width: 2000, height: 100, pixels: raw.pixels };
+        let raw = RawImage {
+            width: 2000,
+            height: 100,
+            pixels: raw.pixels,
+        };
         let err = resize_raw_image(raw, OutputResolution::Width1080).unwrap_err();
-        assert!(matches!(err, Error::Internal(_)), "expected Error::Internal, got {err:?}");
+        assert!(
+            matches!(err, Error::Internal(_)),
+            "expected Error::Internal, got {err:?}"
+        );
     }
 
     // --- degenerate dimensions ---

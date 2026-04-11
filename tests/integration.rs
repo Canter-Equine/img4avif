@@ -24,8 +24,11 @@ fn make_jpeg(width: u32, height: u32) -> Vec<u8> {
 fn make_webp(width: u32, height: u32) -> Vec<u8> {
     let img = image::RgbaImage::from_pixel(width, height, image::Rgba([100u8, 150, 200, 255]));
     let mut buf = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::WebP)
-        .unwrap();
+    img.write_to(
+        &mut std::io::Cursor::new(&mut buf),
+        image::ImageFormat::WebP,
+    )
+    .unwrap();
     buf
 }
 
@@ -391,12 +394,10 @@ fn alpha_quality_zero_via_direct_field_still_encodes() {
 fn truncated_webp_returns_error() {
     // RIFF magic bytes but truncated — must not panic.
     let truncated: &[u8] = b"RIFF\x00\x00\x00\x00WEBP";
-    assert!(
-        Converter::new(Config::default())
-            .unwrap()
-            .convert(truncated)
-            .is_err()
-    );
+    assert!(Converter::new(Config::default())
+        .unwrap()
+        .convert(truncated)
+        .is_err());
 }
 
 #[test]
@@ -409,5 +410,8 @@ fn convert_multi_returns_error_on_bad_input() {
         .unwrap()
         .convert_multi(b"garbage")
         .unwrap_err();
-    assert!(matches!(err, Error::Decode(_) | Error::UnsupportedFormat(_)));
+    assert!(matches!(
+        err,
+        Error::Decode(_) | Error::UnsupportedFormat(_)
+    ));
 }
