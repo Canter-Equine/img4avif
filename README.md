@@ -134,15 +134,25 @@ img2avif = { version = "0.1", features = ["heic-experimental"] }
 
 ## Configuration reference
 
+The `Config` builder lets you balance **image quality**, **file size**, and
+**encode speed**:
+
+### Recommended starting points
+
+- **Thumbnails / Lambda / high-throughput pipelines:** use `quality=70`
+  and `speed=10`
+- **Archival photos / maximum fidelity:** use `quality=95` and a lower
+  speed such as `6`
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `quality` | `u8` | `80` | Colour encoding quality (1 – 100). Higher = better, larger. |
+| `quality` | `u8` | `80` | Colour encoding quality (1 – 100). Higher value preserves the image quality, lower value produces smaller file size. |
 | `alpha_quality` | `u8` | `80` | Alpha-channel quality (1 – 100). Set higher (e.g. 95) to keep alpha visually lossless. |
-| `speed` | `u8` | `6` | Encoder speed (1 – 10). Higher = faster, slightly larger. |
+| `speed` | `u8` | `6` | Encoder speed (1 – 10). Higher value encodes faster, smaller value produces smaller file size. |
 | `strip_exif` | `bool` | `true` | Strip all EXIF/IPTC/XMP metadata (recommended). |
 | `max_input_bytes` | `u64` | `104_857_600` (100 MiB) | Maximum raw input file size. |
-| `max_pixels` | `u64` | `268_435_456` (≈ 268 MP) | Max decoded pixel count (width × height). |
-| `memory_limit_bytes` | `u64` | `536_870_912` (512 MiB) | Peak RSS budget. |
+| `max_pixels` | `u64` | `268_435_456` (≈ 268 MP) | Max pixel count (width × height). |
+| `memory_limit_bytes` | `u64` | `536_870_912` (512 MiB) | Peak memory budget for conversion. |
 | `output_resolutions` | `Vec<OutputResolution>` | `[Original]` | Which resolution(s) to produce. See [Output resolution control](#output-resolution-control). |
 
 All setter methods return `Self` for chaining:
