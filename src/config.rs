@@ -19,8 +19,8 @@
 /// | `speed` | `6` |
 /// | `strip_exif` | `true` |
 /// | `max_input_bytes` | 100 MiB |
-/// | `max_pixels` | 16 384 × 16 384 |
-/// | `memory_limit_bytes` | 150 MiB |
+/// | `max_pixels` | 16 384 × 16 384 (≈ 268 MP) |
+/// | `memory_limit_bytes` | 512 MiB |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// Encoding quality **1 – 100** (higher = better quality, larger file).
@@ -54,7 +54,10 @@ pub struct Config {
     /// Peak RSS memory budget in bytes.
     ///
     /// Checked before and after decoding on Linux (via `/proc/self/status`)
-    /// and macOS.  Set to `u64::MAX` to disable.  Default: 150 MiB.
+    /// and macOS.  Set to `u64::MAX` to disable.
+    ///
+    /// A 50 MP RGBA8 image occupies 200 MiB in the pixel buffer alone, so the
+    /// default is sized to accommodate that with headroom.  Default: 512 MiB.
     pub memory_limit_bytes: u64,
 }
 
@@ -66,7 +69,7 @@ impl Default for Config {
             strip_exif: true,
             max_input_bytes: 100 * 1024 * 1024,
             max_pixels: 16_384 * 16_384,
-            memory_limit_bytes: 150 * 1024 * 1024,
+            memory_limit_bytes: 512 * 1024 * 1024,
         }
     }
 }
@@ -117,16 +120,16 @@ impl Config {
     }
 
     /// Preset tuned for minimum Lambda cost: fastest encoder speed (10),
-    /// quality 75, EXIF stripped, 25 MiB input cap.
+    /// quality 75, EXIF stripped, 50 MiB input cap, 512 MiB memory budget.
     #[must_use]
     pub fn lambda_cost_optimized() -> Self {
         Self {
             quality: 75,
             speed: 10,
             strip_exif: true,
-            max_input_bytes: 25 * 1024 * 1024,
+            max_input_bytes: 50 * 1024 * 1024,
             max_pixels: 16_384 * 16_384,
-            memory_limit_bytes: 150 * 1024 * 1024,
+            memory_limit_bytes: 512 * 1024 * 1024,
         }
     }
 }
