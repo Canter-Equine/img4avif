@@ -58,7 +58,7 @@
 //! - **Input-size cap** ([`Config::max_input_bytes`], default 100 MiB) —
 //!   rejected before any bytes are decompressed.
 //! - **Decompression-bomb protection** ([`Config::max_pixels`]) — the decoder
-//!   allocation budget is derived from `max_pixels * 4 + 64 MiB`; an image
+//!   allocation budget is derived from `max_pixels * 8 + 64 MiB`; an image
 //!   that claims huge dimensions is rejected before the pixel buffer lands in
 //!   RAM.
 //! - **RSS guard** ([`Config::memory_limit_bytes`], default 512 MiB) — checked
@@ -304,7 +304,7 @@ impl Converter {
 
         let mut outputs = Vec::with_capacity(resolutions.len());
         for &resolution in resolutions {
-            let resized = resize::resize_raw_image(raw.clone(), resolution)?;
+            let resized = resize::resize_raw_image(&raw, resolution)?;
             let data = match self.encode_raw(&resized) {
                 Ok(d) => d,
                 Err(e) => {
@@ -449,7 +449,7 @@ impl Converter {
         use logging::img_debug;
         let raw = self.validate_and_decode(input)?;
         img_debug!("single_convert: applying resolution {:?}", resolution);
-        let resized = resize::resize_raw_image(raw, resolution)?;
+        let resized = resize::resize_raw_image(&raw, resolution)?;
         self.encode_raw(&resized)
     }
 
