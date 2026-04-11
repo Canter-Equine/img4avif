@@ -316,7 +316,7 @@ impl Converter {
         // hundreds of megabytes, so avoiding the final clone matters.
         let (last_res, rest_res) = resolutions
             .split_last()
-            .expect("resolutions is always non-empty");
+            .expect("resolutions list is guaranteed non-empty by earlier normalisation to [Original]");
 
         for &resolution in rest_res {
             let resized = resize::resize_raw_image(raw.clone(), resolution)?;

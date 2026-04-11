@@ -37,7 +37,7 @@ pub fn strip_metadata(data: &[u8]) -> Vec<u8> {
     }
 
     // WebP: RIFF....WEBP
-    if data.len() >= 12 && data.starts_with(b"RIFF") && data[8..12] == *b"WEBP" {
+    if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WEBP") {
         if let Ok(mut webp) = WebP::from_bytes(Bytes::copy_from_slice(data)) {
             webp.set_exif(None);
             webp.set_icc_profile(None);
