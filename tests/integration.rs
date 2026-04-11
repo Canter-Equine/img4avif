@@ -323,24 +323,13 @@ fn width1080_on_wide_flat_image_preserves_height_of_one() {
 // 16-bit PNG + resize
 // ---------------------------------------------------------------------------
 
-fn make_png_16bit(width: u32, height: u32) -> Vec<u8> {
-    use image::{ImageBuffer, Rgb};
-    let img: ImageBuffer<Rgb<u16>, Vec<u16>> =
-        ImageBuffer::from_pixel(width, height, Rgb([48000u16; 3]));
-    let mut buf = Vec::new();
-    image::DynamicImage::ImageRgb16(img)
-        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
-        .unwrap();
-    buf
-}
-
 #[test]
 fn png_16bit_with_resize_to_1080() {
     // Exercises the 16-bit resize path in resize_raw_image.
     let cfg = Config::default().output_resolutions(vec![OutputResolution::Width1080]);
     let avif = Converter::new(cfg)
         .unwrap()
-        .convert(&make_png_16bit(1920, 1080))
+        .convert(&make_png_16bit(1920, 1080, 48000))
         .expect("16-bit PNG 1920→1080 AVIF");
     assert!(!avif.is_empty());
 }
@@ -350,7 +339,7 @@ fn png_16bit_with_resize_to_2560() {
     let cfg = Config::default().output_resolutions(vec![OutputResolution::Width2560]);
     let avif = Converter::new(cfg)
         .unwrap()
-        .convert(&make_png_16bit(3840, 2160))
+        .convert(&make_png_16bit(3840, 2160, 48000))
         .expect("16-bit PNG 3840→2560 AVIF");
     assert!(!avif.is_empty());
 }
