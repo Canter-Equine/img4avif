@@ -65,36 +65,22 @@ fn rss_linux() -> Option<u64> {
     None
 }
 
-/// Approximate RSS on macOS by summing active + wired pages from `vm_stat`.
+/// Approximate RSS on macOS by querying the process-specific RSS from `ps`.
 ///
 /// We use a subprocess rather than `libc::getrusage` to keep this crate
 /// free of `unsafe` blocks.  This path is only taken on development machines
 /// (Lambda always runs Linux).
 #[cfg(target_os = "macos")]
 fn rss_macos() -> Option<u64> {
-    let output = std::process::Command::new("vm_stat").output().ok()?;
+    let pid = std::process::id();
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "rss="])
+        .output()
+        .ok()?;
     let text = std::str::from_utf8(&output.stdout).ok()?;
-
-    let page_size: u64 = text
-        .lines()
-        .next()
-        .and_then(|hdr| {
-            let start = hdr.find("page size of ")? + "page size of ".len();
-            let rest = &hdr[start..];
-            rest[..rest.find(" bytes")?].parse().ok()
-        })
-        .unwrap_or(4096);
-
-    let mut active: u64 = 0;
-    let mut wired: u64 = 0;
-    for line in text.lines() {
-        if let Some(v) = line.strip_prefix("Pages active:") {
-            active = v.trim().trim_end_matches('.').parse().unwrap_or(0);
-        } else if let Some(v) = line.strip_prefix("Pages wired down:") {
-            wired = v.trim().trim_end_matches('.').parse().unwrap_or(0);
-        }
-    }
-    Some((active + wired) * page_size)
+    // `ps -o rss=` reports in kilobytes
+    let kb: u64 = text.trim().parse().ok()?;
+    Some(kb * 1024)
 }
 
 #[cfg(test)]
