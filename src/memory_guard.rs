@@ -49,16 +49,24 @@ impl MemoryGuard {
         None
     }
 
-    /// Return `Ok(())` if RSS is within the limit or unreadable (fail-open).
+    /// Return `Ok(())` if the RSS increase since construction is within the
+    /// limit, or if RSS is unreadable (fail-open).
+    ///
+    /// The check compares the *increase* in RSS from the baseline recorded at
+    /// construction time against `limit_bytes`.  This prevents a high
+    /// pre-existing process RSS (e.g. from other loaded libraries or parallel
+    /// test threads) from falsely triggering the guard on small inputs.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::MemoryExceeded`] when measured RSS exceeds the limit.
+    /// Returns [`Error::MemoryExceeded`] when `current_rss − baseline_rss ≥ limit_bytes`.
+    /// A limit of `0` therefore always triggers the guard (any delta meets the limit).
     pub fn check(&self) -> Result<(), Error> {
         if let Some(rss) = Self::current_rss_bytes() {
-            if rss > self.limit_bytes {
+            let delta = rss.saturating_sub(self.baseline_bytes);
+            if delta >= self.limit_bytes {
                 return Err(Error::MemoryExceeded {
-                    used_mb: rss / (1024 * 1024),
+                    used_mb: delta / (1024 * 1024),
                     limit_mb: self.limit_bytes / (1024 * 1024),
                 });
             }

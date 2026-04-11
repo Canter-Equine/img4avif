@@ -79,10 +79,9 @@ impl OutputResolution {
     #[must_use]
     pub(crate) fn max_width(self) -> Option<u32> {
         match self {
-            Self::Original => None,
+            Self::Original | Self::Custom(0) => None,
             Self::Width2560 => Some(2560),
             Self::Width1080 => Some(1080),
-            Self::Custom(0) => None,
             Self::Custom(w) => Some(w),
         }
     }

@@ -48,9 +48,9 @@ pub enum Error {
     /// Peak RSS memory exceeded [`crate::Config::memory_limit_bytes`].
     ///
     /// Return this error immediately without further processing.
-    #[error("memory limit exceeded: {used_mb} MB used, limit is {limit_mb} MB")]
+    #[error("memory limit met or exceeded: {used_mb} MB increase, limit is {limit_mb} MB")]
     MemoryExceeded {
-        /// Observed RSS in megabytes at the time the limit was breached.
+        /// RSS increase in megabytes observed since the guard was created.
         used_mb: u64,
         /// Configured limit in megabytes.
         limit_mb: u64,
