@@ -44,6 +44,9 @@ jobs:
   test:
     name: Test (${{ matrix.os }} / Rust ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
+    # Run macOS tests only on pull_request to avoid duplicate CI runs.
+    # Linux tests run on both push and pull_request.
+    if: github.event_name == 'pull_request' || matrix.os == 'ubuntu-latest'
     permissions:
       contents: read
     strategy:

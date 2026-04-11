@@ -135,13 +135,21 @@ pub(crate) fn resize_raw_image(
     }
 
     let new_width = target_width;
-    // Proportional height, rounded to nearest pixel.  Use u64 arithmetic to
-    // avoid overflow when width × new_width exceeds u32::MAX.
-    let new_height = u32::try_from(
-        (u64::from(height) * u64::from(new_width) + u64::from(width) / 2) / u64::from(width),
-    )
-    .unwrap_or(1)
-    .max(1);
+    // Proportional height, rounded to nearest pixel.  Use saturating u64
+    // arithmetic so that extreme aspect ratios cannot silently produce a
+    // 1-pixel-tall output via integer overflow.
+    let height_u64 = u64::from(height)
+        .saturating_mul(u64::from(new_width))
+        .saturating_add(u64::from(width) / 2)
+        / u64::from(width);
+
+    let new_height = u32::try_from(height_u64)
+        .map_err(|_| {
+            Error::Internal(format!(
+                "resize calculation overflow: {width}×{height} → width {target_width}"
+            ))
+        })?
+        .max(1);
 
     img_info!(
         "resize: {}×{} → {}×{} ({} target width, Lanczos3)",

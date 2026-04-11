@@ -11,10 +11,19 @@ use crate::Error;
 /// pre-existing process baseline (e.g. loaded shared libraries or other
 /// in-flight tasks) from falsely triggering the limit.
 ///
-/// Platform support:
-/// - **Linux** — reads `VmRSS` from `/proc/self/status`
-/// - **macOS** — parses `vm_stat` (development only; Lambda runs Linux)
-/// - **Other** — silently skips the check (fail-open)
+/// # Platform support
+///
+/// | Platform | Implementation | Accuracy |
+/// |----------|---------------|---------|
+/// | **Linux** | `/proc/self/status` `VmRSS` | Accurate — process-specific RSS |
+/// | **macOS** | `vm_stat` subprocess (active + wired pages) | **Approximate** — system-wide, may include other processes; not suitable for tight limits |
+/// | **Windows / other** | Not supported | `memory_limit_bytes` is silently ignored (fail-open) |
+///
+/// > **Note for macOS users:** The macOS implementation sums system-wide active
+/// > and wired pages reported by `vm_stat`, which can include memory from other
+/// > processes and the kernel.  This may trigger false positives under system
+/// > memory pressure.  Lambda deployments always run Linux and use the accurate
+/// > `/proc`-based implementation.
 pub struct MemoryGuard {
     limit_bytes: u64,
     /// RSS snapshot taken when the guard was created, used as the delta baseline.
@@ -89,9 +98,16 @@ fn rss_linux() -> Option<u64> {
 
 /// Approximate RSS on macOS by summing active + wired pages from `vm_stat`.
 ///
+/// **Important:** `vm_stat` reports system-wide memory statistics, not
+/// per-process RSS.  The returned value includes memory used by other
+/// processes and the kernel, so it may significantly overestimate this
+/// process's actual memory usage and cause false positives under system memory
+/// pressure.
+///
 /// We use a subprocess rather than `libc::getrusage` to keep this crate
 /// free of `unsafe` blocks.  This path is only taken on development machines
-/// (Lambda always runs Linux).
+/// (Lambda always runs Linux, which uses the accurate `/proc`-based
+/// implementation).
 #[cfg(target_os = "macos")]
 fn rss_macos() -> Option<u64> {
     let output = std::process::Command::new("vm_stat").output().ok()?;

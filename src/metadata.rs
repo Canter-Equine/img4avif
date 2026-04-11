@@ -1,4 +1,3 @@
-use crate::logging::img_warn;
 use img_parts::{webp::WebP, Bytes, ImageEXIF, ImageICC};
 
 /// Strip EXIF, IPTC, and XMP metadata from `data`.
@@ -9,16 +8,18 @@ use img_parts::{webp::WebP, Bytes, ImageEXIF, ImageICC};
 /// - **PNG** — removes `tEXt`, `zTXt`, `iTXt`, and `eXIf` chunks
 /// - **WebP** — removes EXIF, ICC, and XMP chunks via the RIFF container
 ///
-/// For any other format (e.g. HEIC/HEIF, RAW) the bytes are returned
-/// unchanged **and a warning is emitted** so that callers relying on
-/// `strip_exif = true` are not silently misled.
-pub fn strip_metadata(data: &[u8]) -> Vec<u8> {
+/// Returns `Some(stripped_bytes)` on success, or `None` if the format is not
+/// recognised (e.g. HEIC/HEIF, RAW files).  The caller is responsible for
+/// deciding whether an unrecognised format is acceptable — for example,
+/// returning [`crate::Error::UnsupportedFormat`] when `strip_exif = true`
+/// was requested.
+pub fn strip_metadata(data: &[u8]) -> Option<Vec<u8>> {
     if let Ok(mut jpeg) = img_parts::jpeg::Jpeg::from_bytes(Bytes::copy_from_slice(data)) {
         jpeg.set_exif(None);
         jpeg.set_icc_profile(None);
         jpeg.segments_mut()
             .retain(|seg| !is_stripped_jpeg_marker(seg.marker()));
-        return jpeg.encoder().bytes().to_vec();
+        return Some(jpeg.encoder().bytes().to_vec());
     }
 
     if let Ok(mut png) = img_parts::png::Png::from_bytes(Bytes::copy_from_slice(data)) {
@@ -26,7 +27,7 @@ pub fn strip_metadata(data: &[u8]) -> Vec<u8> {
             let tag = chunk.kind();
             tag != *b"tEXt" && tag != *b"zTXt" && tag != *b"iTXt" && tag != *b"eXIf"
         });
-        return png.encoder().bytes().to_vec();
+        return Some(png.encoder().bytes().to_vec());
     }
 
     if let Ok(mut webp) = WebP::from_bytes(Bytes::copy_from_slice(data)) {
@@ -35,18 +36,13 @@ pub fn strip_metadata(data: &[u8]) -> Vec<u8> {
         // Remove the XMP chunk (four-CC `XMP `) if present.
         webp.chunks_mut()
             .retain(|chunk| chunk.id() != img_parts::webp::CHUNK_XMP);
-        return webp.encoder().bytes().to_vec();
+        return Some(webp.encoder().bytes().to_vec());
     }
 
     // Fallthrough: format not recognised by any of the strippers above (e.g.
-    // HEIC/HEIF, RAW files).  Metadata is NOT removed; warn so callers with
-    // `strip_exif = true` know their expectation was not met.
-    img_warn!(
-        "strip_metadata: unrecognised format ({} bytes) — \
-         metadata NOT stripped; sensitive EXIF data may be present in the output",
-        data.len()
-    );
-    data.to_vec()
+    // HEIC/HEIF, RAW files).  Return None so callers with `strip_exif = true`
+    // can surface an explicit error rather than silently leaking metadata.
+    None
 }
 
 /// Returns `true` for JPEG APP markers that carry only metadata.
@@ -65,14 +61,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strip_unknown_bytes_returns_copy() {
+    fn strip_unknown_bytes_returns_none() {
         let data = b"not an image";
-        assert_eq!(strip_metadata(data), data.to_vec());
+        assert!(strip_metadata(data).is_none());
     }
 
     #[test]
-    fn strip_empty_slice() {
-        assert_eq!(strip_metadata(&[]), Vec::<u8>::new());
+    fn strip_empty_slice_returns_none() {
+        assert!(strip_metadata(&[]).is_none());
     }
 
     #[test]
@@ -101,7 +97,7 @@ mod tests {
         )
         .expect("test WebP encode");
 
-        let stripped = strip_metadata(&buf);
+        let stripped = strip_metadata(&buf).expect("WebP stripping should succeed");
         // The stripped bytes must still be parseable as a WebP.
         assert!(
             WebP::from_bytes(Bytes::copy_from_slice(&stripped)).is_ok(),

@@ -232,12 +232,17 @@ fn heic_without_feature_returns_unsupported_format() {
         "expected UnsupportedFormat or Decode, got: {err:?}"
     );
 
-    // When the feature is off, the error message should hint at the feature flag.
+    // When the feature is off, the error message should hint at the feature flag
+    // or indicate that EXIF stripping is not supported for this format.
+    // With strip_exif=true (the default), the metadata-stripping stage fires
+    // first and reports an UnsupportedFormat error before the decoder is even
+    // reached.  Both messages are valid UnsupportedFormat errors.
     #[cfg(not(feature = "heic-experimental"))]
     if let Error::UnsupportedFormat(msg) = &err {
         assert!(
-            msg.contains("heic-experimental"),
-            "UnsupportedFormat message should mention 'heic-experimental', got: {msg}"
+            msg.contains("heic-experimental") || msg.contains("strip_exif"),
+            "UnsupportedFormat message should mention 'heic-experimental' or 'strip_exif', \
+             got: {msg}"
         );
     }
 }

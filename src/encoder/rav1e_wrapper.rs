@@ -24,6 +24,8 @@
 //!    `ftyp` box).
 //! 3. Bytes 4–7 must equal `ftyp` — the ISOBMFF box-type marker present in
 //!    every well-formed AVIF file.
+//! 4. Bytes 8–11 must equal `avif` or `avis` — the AVIF major brand.
+//! 5. Bytes 0–3 must encode a box size ≥ 20 and ≤ total output length.
 //!
 //! If any check fails, [`Error::Encode`] is returned with a descriptive
 //! message instead of silently handing back corrupt bytes to the caller.
@@ -61,7 +63,8 @@ const MIN_AVIF_BYTES: usize = 20;
 ///
 /// The encoded bytes are validated against the AVIF / ISOBMFF container
 /// format before being returned.  [`Error::Encode`] is returned if the
-/// encoder produces empty, truncated, or structurally invalid output.
+/// encoder produces empty, truncated, structurally invalid output, or output
+/// with an unexpected major brand or invalid box size.
 ///
 /// # Errors
 ///
@@ -124,6 +127,8 @@ pub fn encode_avif(
 /// 1. Non-empty.
 /// 2. At least [`MIN_AVIF_BYTES`] long.
 /// 3. Bytes 4–7 are `b"ftyp"` — the ISOBMFF file-type box marker.
+/// 4. Bytes 8–11 are `b"avif"` or `b"avis"` — the AVIF major brand.
+/// 5. Bytes 0–3 encode a box size ≥ 20 and ≤ the total output length.
 ///
 /// These checks are lightweight (no full ISOBMFF parse) and catch the most
 /// common failure modes: empty output, truncated output, and the encoder
@@ -165,6 +170,32 @@ fn validate_avif_output(bytes: &[u8], width: u32, height: u32) -> Result<(), Err
             "AVIF encoder produced invalid container: expected ISOBMFF 'ftyp' box at offset 4, \
              got {:02x?}",
             &bytes[4..8],
+        )));
+    }
+
+    // Verify the AVIF major brand (bytes 8–11).
+    if bytes[8..12] != *b"avif" && bytes[8..12] != *b"avis" {
+        img_error!(
+            "encode_avif: unexpected major brand — bytes[8..12] = {:02x?}",
+            &bytes[8..12]
+        );
+        return Err(Error::Encode(format!(
+            "AVIF major brand invalid: expected 'avif' or 'avis', got {:02x?}",
+            &bytes[8..12],
+        )));
+    }
+
+    // Verify the ftyp box size field (bytes 0–3, big-endian u32).
+    let box_size = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    if box_size < MIN_AVIF_BYTES || box_size > bytes.len() {
+        img_error!(
+            "encode_avif: ftyp box size {} is invalid (output is {} bytes)",
+            box_size,
+            bytes.len()
+        );
+        return Err(Error::Encode(format!(
+            "AVIF ftyp box size invalid: box_size={box_size}, output length={}",
+            bytes.len()
         )));
     }
 
@@ -388,8 +419,39 @@ mod tests {
     #[test]
     fn validate_accepts_valid_ftyp() {
         let mut valid = vec![0u8; 24];
+        // Set box size (big-endian u32) to 24 — the full buffer length.
+        valid[0..4].copy_from_slice(&24u32.to_be_bytes());
         valid[4..8].copy_from_slice(b"ftyp");
         valid[8..12].copy_from_slice(b"avif");
+        assert!(validate_avif_output(&valid, 4, 4).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_invalid_major_brand() {
+        let mut fake = vec![0u8; 24];
+        fake[0..4].copy_from_slice(&24u32.to_be_bytes());
+        fake[4..8].copy_from_slice(b"ftyp");
+        fake[8..12].copy_from_slice(b"mp41"); // Not an AVIF brand
+        let err = validate_avif_output(&fake, 4, 4).unwrap_err();
+        assert!(matches!(err, Error::Encode(ref msg) if msg.contains("major brand")));
+    }
+
+    #[test]
+    fn validate_rejects_invalid_box_size() {
+        let mut fake = vec![0u8; 24];
+        fake[0..4].copy_from_slice(&5u32.to_be_bytes()); // Too small
+        fake[4..8].copy_from_slice(b"ftyp");
+        fake[8..12].copy_from_slice(b"avif");
+        let err = validate_avif_output(&fake, 4, 4).unwrap_err();
+        assert!(matches!(err, Error::Encode(ref msg) if msg.contains("box size")));
+    }
+
+    #[test]
+    fn validate_accepts_avis_brand() {
+        let mut valid = vec![0u8; 24];
+        valid[0..4].copy_from_slice(&24u32.to_be_bytes());
+        valid[4..8].copy_from_slice(b"ftyp");
+        valid[8..12].copy_from_slice(b"avis");
         assert!(validate_avif_output(&valid, 4, 4).is_ok());
     }
 }
