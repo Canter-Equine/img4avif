@@ -61,8 +61,13 @@ pub enum OutputResolution {
     Width1080,
     /// Shrink so the width is at most the given number of pixels, preserving
     /// the aspect ratio.  Images already at or below this width are passed
-    /// through unchanged.  A width of `0` is treated as [`Original`](Self::Original)
-    /// (no resize).
+    /// through unchanged.
+    ///
+    /// A width of `0` is treated the same as [`Original`](Self::Original) —
+    /// the image is returned at its full size without any resizing.  This is
+    /// a deliberate design choice that makes it safe to derive a target width
+    /// from arithmetic that could produce zero; callers that want a hard error
+    /// on zero should validate the value before constructing this variant.
     Custom(u32),
 }
 
