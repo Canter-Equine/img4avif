@@ -31,7 +31,7 @@ pub enum Error {
     #[error("failed to encode AVIF: {0}")]
     Encode(String),
 
-    /// The image dimensions exceed the configured [`Config::max_pixels`] limit.
+    /// The image dimensions exceed the configured [`crate::Config::max_pixels`] limit.
     #[error(
         "input too large: {width}×{height} ({} pixels) exceeds the {max_pixels}-pixel limit",
         u64::from(*width) * u64::from(*height)
@@ -45,7 +45,7 @@ pub enum Error {
         max_pixels: u64,
     },
 
-    /// Peak RSS memory exceeded [`Config::memory_limit_bytes`].
+    /// Peak RSS memory exceeded [`crate::Config::memory_limit_bytes`].
     ///
     /// Return this error immediately without further processing.
     #[error("memory limit exceeded: {used_mb} MB used, limit is {limit_mb} MB")]

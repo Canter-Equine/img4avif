@@ -355,8 +355,10 @@ fn png_16bit_with_resize_to_2560() {
 fn quality_zero_via_direct_field_still_encodes() {
     // Config::quality = 0 bypasses the builder's clamp(1,100).
     // The encoder must not panic; it re-clamps internally.
-    let mut cfg = Config::default();
-    cfg.quality = 0;
+    let cfg = Config {
+        quality: 0,
+        ..Config::default()
+    };
     let avif = Converter::new(cfg)
         .unwrap()
         .convert(&make_png(8, 8))
@@ -366,8 +368,10 @@ fn quality_zero_via_direct_field_still_encodes() {
 
 #[test]
 fn speed_zero_via_direct_field_still_encodes() {
-    let mut cfg = Config::default();
-    cfg.speed = 0;
+    let cfg = Config {
+        speed: 0,
+        ..Config::default()
+    };
     let avif = Converter::new(cfg)
         .unwrap()
         .convert(&make_png(8, 8))
@@ -377,8 +381,10 @@ fn speed_zero_via_direct_field_still_encodes() {
 
 #[test]
 fn alpha_quality_zero_via_direct_field_still_encodes() {
-    let mut cfg = Config::default();
-    cfg.alpha_quality = 0;
+    let cfg = Config {
+        alpha_quality: 0,
+        ..Config::default()
+    };
     let avif = Converter::new(cfg)
         .unwrap()
         .convert(&make_png(8, 8))

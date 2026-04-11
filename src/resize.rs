@@ -2,7 +2,7 @@
 //!
 //! This module defines the [`OutputResolution`] enum that controls how a decoded
 //! image is scaled before AVIF encoding.  The actual downscaling is performed
-//! by [`resize_raw_image`], which uses a Lanczos-3 filter for high quality.
+//! by `resize_raw_image`, which uses a Lanczos-3 filter for high quality.
 //!
 //! ## Behaviour
 //!

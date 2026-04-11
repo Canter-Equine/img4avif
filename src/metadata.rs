@@ -87,7 +87,7 @@ mod tests {
         assert!(!is_stripped_jpeg_marker(0xDA)); // SOS — kept
     }
 
-    /// Round-trip: encode a WebP, call strip_metadata, verify the result
+    /// Round-trip: encode a WebP, call `strip_metadata`, verify the result
     /// still decodes as a valid image (i.e. the image data is intact).
     ///
     /// This is a structural sanity check; full EXIF-injection + verification
