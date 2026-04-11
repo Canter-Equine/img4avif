@@ -121,6 +121,7 @@ pub mod metadata;
 /// Output resolution control and image resizing — see [`OutputResolution`].
 pub mod resize;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 pub(crate) mod decoder;
@@ -188,6 +189,26 @@ pub struct Converter {
     config: Config,
 }
 
+impl From<Config> for Converter {
+    /// Construct a [`Converter`] directly from a [`Config`].
+    ///
+    /// This is the infallible counterpart to [`Converter::new`] and is
+    /// idiomatic when you know construction cannot fail.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use img2avif::{Config, Converter};
+    ///
+    /// let converter = Converter::from(Config::default());
+    /// // or equivalently:
+    /// let converter: Converter = Config::default().into();
+    /// ```
+    fn from(config: Config) -> Self {
+        Self { config }
+    }
+}
+
 impl Converter {
     /// Create a new [`Converter`] from the given [`Config`].
     ///
@@ -198,7 +219,6 @@ impl Converter {
     pub fn new(config: Config) -> Result<Self, Error> {
         Ok(Self { config })
     }
-
     /// Convert raw image bytes to AVIF using the first resolution in
     /// [`Config::output_resolutions`] (defaults to
     /// [`OutputResolution::Original`] when the list is empty).
@@ -377,7 +397,13 @@ impl Converter {
             );
         }
 
-        if input.len() as u64 > self.config.max_input_bytes {
+        // Use `try_from` rather than `as` to guard against truncation on
+        // 32-bit targets where `usize` is only 32 bits.  On the theoretical
+        // future architectures where `usize` exceeds 64 bits, `unwrap_or`
+        // falls back to `u64::MAX`, which exceeds any realistic
+        // `max_input_bytes` limit and causes the oversized-input error below.
+        let input_len = u64::try_from(input.len()).unwrap_or(u64::MAX);
+        if input_len > self.config.max_input_bytes {
             img_error!(
                 "validate_and_decode: input {} bytes exceeds limit of {} bytes",
                 input.len(),
@@ -404,7 +430,10 @@ impl Converter {
             return Err(e);
         }
 
-        let processed: Vec<u8> = if self.config.strip_exif {
+        // Use `Cow` to avoid cloning the input when `strip_exif = false`.
+        // `strip_metadata` already allocates a new `Vec` on success, so the
+        // owned branch is only created when we actually need it.
+        let processed: Cow<[u8]> = if self.config.strip_exif {
             match metadata::strip_metadata(input) {
                 Some(stripped) => {
                     img_debug!(
@@ -412,7 +441,7 @@ impl Converter {
                         input.len(),
                         stripped.len()
                     );
-                    stripped
+                    Cow::Owned(stripped)
                 }
                 None => {
                     img_error!(
@@ -428,7 +457,7 @@ impl Converter {
                 }
             }
         } else {
-            input.to_vec()
+            Cow::Borrowed(input)
         };
 
         img_debug!("validate_and_decode: decoding {} bytes", processed.len());
