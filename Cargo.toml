@@ -1,17 +1,17 @@
 [package]
 name = "img4avif"
 version = "0.5.0"
-edition = "2021"
+edition = "2026"
 rust-version = "1.85"
 authors = ["Canter-Equine"]
 description = "Serverless-optimized image conversion: JPEG/PNG/WebP/HEIC → AVIF with HDR10 input support (pure Rust, Lambda-ready)"
 license = "Apache-2.0"
 readme = "README.md"
-keywords = ["avif", "image", "convert", "heic", "hdr"]
+keywords = ["avif", "image", "convert", "heic", "hdr", "rust native"]
 categories = ["multimedia::images", "encoding"]
 repository = "https://github.com/Canter-Equine/img4avif"
 documentation = "https://docs.rs/img4avif"
-exclude = ["/tests/fixtures", "/examples/fixtures", "/benches", "/fuzz"]
+exclude = ["/tests", "/examples", "/benches"]
 
 # rlib  – Rust-to-Rust linking (tests, examples, downstream crates).
 # cdylib – produces a `.wasm` binary when targeting wasm32-unknown-unknown,
