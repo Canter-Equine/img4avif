@@ -77,7 +77,11 @@ jobs:
           key: ${{ runner.os }}-stable-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run unit and integration tests
-        run: cargo test --lib --tests
+        run: cargo test --lib --tests -- --nocapture
+
+      - name: Run fixture conversion timing test
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --test fixture_timing -- --nocapture
 
       - name: Upload fixture conversion outputs
         if: matrix.os == 'ubuntu-latest'
@@ -145,7 +149,7 @@ jobs:
 
       - name: Check .rlib size < 5 MB
         run: |
-          RLIB=$(find target/release -name "libimg2avif*.rlib" | head -1)
+          RLIB=$(find target/release -name "libimagine_avif*.rlib" | head -1)
           if [ -z "$RLIB" ]; then
             echo "No .rlib found — skipping size check"
             exit 0
@@ -226,3 +230,45 @@ jobs:
 
       - name: Run 50 MP stress test
         run: cargo test --test memory_stress fifty_megapixel_converts_successfully -- --ignored --nocapture
+
+  wasm-mobile:
+    name: WASM build + Playwright mobile browser tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable with wasm32 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: wasm-mobile-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build for wasm32-unknown-unknown
+        run: cargo build --target wasm32-unknown-unknown
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright dependencies
+        working-directory: tests/wasm
+        run: npm install
+
+      - name: Install Playwright browsers (Chromium + WebKit)
+        working-directory: tests/wasm
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Run Playwright mobile browser tests
+        working-directory: tests/wasm
+        run: npx playwright test

@@ -1,8 +1,8 @@
-# img2avif
+# imagine-avif
 
-[![Crates.io](https://img.shields.io/crates/v/img2avif.svg)](https://crates.io/crates/img2avif)
-[![docs.rs](https://docs.rs/img2avif/badge.svg)](https://docs.rs/img2avif)
-[![CI](https://github.com/Canter-Equine/img2avif/actions/workflows/ci.yml/badge.svg)](https://github.com/Canter-Equine/img2avif/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/imagine-avif.svg)](https://crates.io/crates/imagine-avif)
+[![docs.rs](https://docs.rs/imagine-avif/badge.svg)](https://docs.rs/imagine-avif)
+[![CI](https://github.com/Canter-Equine/imagine-avif/actions/workflows/ci.yml/badge.svg)](https://github.com/Canter-Equine/imagine-avif/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MSRV: 1.85](https://img.shields.io/badge/MSRV-1.85-blue.svg)](https://blog.rust-lang.org/2025/01/23/Rust-1.85.0.html)
 
@@ -38,12 +38,12 @@ on AWS Lambda (Linux x86_64 / aarch64).
 
 ```toml
 [dependencies]
-img2avif = "0.5"
+imagine-avif = "0.5"
 ```
 
 ### Minimum supported Rust version (MSRV)
 
-`img2avif` requires **Rust 1.85** or later.  The MSRV is enforced in
+`imagine-avif` requires **Rust 1.85** or later.  The MSRV is enforced in
 `Cargo.toml` and tested in CI.
 
 ---
@@ -51,9 +51,9 @@ img2avif = "0.5"
 ## Quick Start
 
 ```rust
-use img2avif::{Config, Converter};
+use imagine_avif::{Config, Converter};
 
-fn main() -> Result<(), img2avif::Error> {
+fn main() -> Result<(), imagine_avif::Error> {
     let jpeg_bytes = std::fs::read("photo.jpg")?;
 
     // Build a config — all fields have sensible defaults.
@@ -73,7 +73,7 @@ fn main() -> Result<(), img2avif::Error> {
 ### Lambda Cost Optimised Preset
 
 ```rust
-use img2avif::{Config, Converter};
+use imagine_avif::{Config, Converter};
 
 let converter = Converter::new(Config::lambda_cost_optimized())?;
 // quality=75, speed=10, strip_exif=true, max_input_bytes=50 MiB
@@ -111,7 +111,7 @@ Many smartphone cameras produce HDR10-tagged HEIC files.  Enable the
 
 ```toml
 [dependencies]
-img2avif = { version = "0.1", features = ["heic-experimental"] }
+imagine-avif = { version = "0.5", features = ["heic-experimental"] }
 ```
 
 > ⚠️  Requires `libheif` installed on the system at link time.  See
@@ -157,7 +157,7 @@ let config = Config::default()
 
 ## Output Resolution Control
 
-By default `img2avif` encodes images at their original resolution.  Use
+By default `imagine-avif` encodes images at their original resolution.  Use
 `Config::output_resolutions` with any combination of `OutputResolution`
 variants to resize before encoding.
 
@@ -169,14 +169,14 @@ variants to resize before encoding.
 
 **Rules:**
 - **Only downscales.** Images already at or below the target width are
-  passed through unchanged — `img2avif` never upscales.
+  passed through unchanged — `imagine-avif` never upscales.
 - **Aspect ratio preserved.** Height is computed proportionally; no cropping.
 - **Lanczos-3 filter** is used for high-quality downsampling.
 
 ### Single output at a specific width
 
 ```rust
-use img2avif::{Config, Converter, OutputResolution};
+use imagine_avif::{Config, Converter, OutputResolution};
 
 let config = Config::default()
     .output_resolutions(vec![OutputResolution::Width1080]);
@@ -188,7 +188,7 @@ let avif = Converter::new(config)?.convert(&src_bytes)?;
 Use `convert_multi` to decode once and get all requested sizes:
 
 ```rust
-use img2avif::{Config, Converter, ConversionOutput, OutputResolution};
+use imagine_avif::{Config, Converter, ConversionOutput, OutputResolution};
 
 let config = Config::default().output_resolutions(vec![
     OutputResolution::Original,   // full resolution
@@ -210,7 +210,7 @@ for out in &outputs {
 
 ## EXIF / metadata handling
 
-By default, img2avif removes all metadata.
+By default, imagine-avif removes all metadata.
 
 If you want to keep metadata, set `strip_exif(false)`:
 `:
@@ -237,7 +237,7 @@ raise the limit accordingly or configure a higher-memory Lambda:
 | ≤ 200 MP | 1024 MiB                             |
 
 ```rust
-use img2avif::{Config, Error};
+use imagine_avif::{Config, Error};
 
 match converter.convert(&huge_image) {
     Err(Error::MemoryExceeded { used_mb, limit_mb }) => {
@@ -269,20 +269,20 @@ match converter.convert(&huge_image) {
 
 ### `dev-logging`
 
-When enabled, `img2avif` emits structured log records under the `img2avif`
+When enabled, `imagine-avif` emits structured log records under the `imagine_avif`
 target at every pipeline stage.  Use any [`log`-compatible
 subscriber](https://docs.rs/log#available-logging-implementations):
 
 ```toml
 [dependencies]
-img2avif = { version = "0.1", features = ["dev-logging"] }
+imagine-avif = { version = "0.5", features = ["dev-logging"] }
 env_logger = "0.11"
 ```
 
 ```rust
 // Initialise the subscriber in your binary or test harness:
 env_logger::init();
-// Then run with: RUST_LOG=img2avif=debug cargo run
+// Then run with: RUST_LOG=imagine_avif=debug cargo run
 ```
 
 | Level | What you see |
@@ -309,11 +309,11 @@ to `()` — the compiler removes them entirely, so there is **zero runtime cost*
 ```toml
 # Enable experimental HEIC/HEIF support (requires libheif C library):
 [dependencies]
-img2avif = { version = "0.1", features = ["heic-experimental"] }
+imagine-avif = { version = "0.5", features = ["heic-experimental"] }
 
 # Enable experimental RAW support (pure Rust, no C):
 [dependencies]
-img2avif = { version = "0.1", features = ["raw-experimental"] }
+imagine-avif = { version = "0.5", features = ["raw-experimental"] }
 ```
 
 ---
@@ -365,12 +365,12 @@ cargo build --release --target aarch64-unknown-linux-musl
 ```yaml
 # template.yaml (AWS SAM)
 Layers:
-  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:img2avif:1
+  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:imagine-avif:1
 
 Environment:
   Variables:
     # Optional: override quality at runtime
-    IMG2AVIF_QUALITY: "80"
+    IMAGINE_AVIF_QUALITY: "80"
 ```
 
 ### 3. Memory Estimates

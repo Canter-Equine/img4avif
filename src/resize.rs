@@ -28,7 +28,7 @@ use std::sync::Arc;
 /// # Downscale-only
 ///
 /// When the decoded image is already **at or below** the target width the
-/// pixels are passed through unchanged — `img2avif` never upscales.
+/// pixels are passed through unchanged — `imagine-avif` never upscales.
 ///
 /// # Aspect ratio
 ///
@@ -38,9 +38,9 @@ use std::sync::Arc;
 /// # Example
 ///
 /// ```rust,no_run
-/// use img2avif::{Config, Converter, OutputResolution};
+/// use imagine_avif::{Config, Converter, OutputResolution};
 ///
-/// # fn main() -> Result<(), img2avif::Error> {
+/// # fn main() -> Result<(), imagine_avif::Error> {
 /// // Produce only the 1080-wide variant.
 /// let config = Config::default()
 ///     .output_resolutions(vec![OutputResolution::Width1080]);
