@@ -5,7 +5,7 @@ use crate::resize::OutputResolution;
 /// Setter methods consume `self` and return the modified value (builder pattern):
 ///
 /// ```rust
-/// use img2avif::{Config, OutputResolution};
+/// use imagine_avif::{Config, OutputResolution};
 ///
 /// let config = Config::default()
 ///     .quality(85)
@@ -187,7 +187,7 @@ impl Config {
     /// # Example
     ///
     /// ```rust
-    /// use img2avif::{Config, OutputResolution};
+    /// use imagine_avif::{Config, OutputResolution};
     ///
     /// // Produce all three resolutions in one convert_multi call.
     /// let config = Config::default().output_resolutions(vec![
