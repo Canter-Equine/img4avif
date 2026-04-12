@@ -31,7 +31,7 @@
 
 use std::collections::HashSet;
 use std::io::Cursor;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::logging::{img_debug, img_error, img_info};
 use crate::Error;
@@ -40,15 +40,19 @@ use crate::Error;
 ///
 /// The 8-bit variant is produced by JPEG, WebP, 8-bit PNG, and HEIC decoders.
 /// The 16-bit variant is produced by 16-bit PNG and leads to 10-bit AVIF output.
+///
+/// The inner buffer is stored in an [`Arc`] so that [`RawImage::clone`] and
+/// the no-op paths in `resize_raw_image` share the allocation rather than
+/// copying up to hundreds of MiB of pixel data.
 #[derive(Clone, Debug)]
 pub enum Pixels {
     /// Standard 8-bit RGBA pixels (`width × height × 4` bytes).
-    Rgba8(Vec<u8>),
+    Rgba8(Arc<[u8]>),
     /// 16-bit RGBA pixels (`width × height × 4` `u16` samples).
     ///
     /// Each sample is in the range 0 – 65 535.  The encoder scales these to
     /// the 0 – 1 023 range required by `encode_raw_planes_10_bit`.
-    Rgba16(Vec<u16>),
+    Rgba16(Arc<[u16]>),
 }
 
 /// A decoded image ready for AVIF encoding.
@@ -217,11 +221,11 @@ fn decode_via_image_crate(data: &[u8], max_pixels: u64) -> Result<RawImage, Erro
     let pixels = match img.color() {
         image::ColorType::Rgb16 | image::ColorType::Rgba16 => {
             img_info!("decode: 16-bit PNG detected — preserving full precision for 10-bit AVIF");
-            Pixels::Rgba16(img.into_rgba16().into_raw())
+            Pixels::Rgba16(Arc::from(img.into_rgba16().into_raw()))
         }
         _ => {
             img_debug!("decode: converting to RGBA8");
-            Pixels::Rgba8(img.into_rgba8().into_raw())
+            Pixels::Rgba8(Arc::from(img.into_rgba8().into_raw()))
         }
     };
 
@@ -326,7 +330,7 @@ fn decode_heif_impl(data: &[u8], max_pixels: u64) -> Result<RawImage, Error> {
     Ok(RawImage {
         width,
         height,
-        pixels: Pixels::Rgba8(pixels),
+        pixels: Pixels::Rgba8(Arc::from(pixels)),
     })
 }
 
