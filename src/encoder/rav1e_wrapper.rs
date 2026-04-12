@@ -372,6 +372,7 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
 mod tests {
     use super::*;
     use crate::decoder::Pixels;
+    use std::sync::Arc;
 
     fn solid_rgba8(width: u32, height: u32, r: u8, g: u8, b: u8, a: u8) -> RawImage {
         let pixel = [r, g, b, a];
@@ -379,7 +380,7 @@ mod tests {
         RawImage {
             width,
             height,
-            pixels: Pixels::Rgba8(pixels),
+            pixels: Pixels::Rgba8(Arc::from(pixels)),
         }
     }
 
