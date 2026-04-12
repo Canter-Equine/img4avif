@@ -12,7 +12,7 @@ images to **AVIF** using the pure-Rust `rav1e` AV1 encoder. It also supports
 
 
 Optimized for **cost-sensitive, high-volume serverless workloads**
-on AWS Lambda (Linux x86_64 / aarch64) with:
+on AWS Lambda (Linux x86_64 / aarch64).
 
 ---
 
@@ -134,11 +134,11 @@ The `Config` builder lets you balance **image quality**, **file size**, and
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `quality` | `u8` | `80` | Colour encoding quality (1 – 100). Higher value preserves the image quality, lower value produces smaller file size. |
-| `alpha_quality` | `u8` | `80` | Alpha-channel quality (1 – 100). Set higher (e.g. 95) to keep alpha visually lossless. |
-| `speed` | `u8` | `6` | Encoder speed (1 – 10). Higher value encodes faster, smaller value produces smaller file size. |
+| `alpha_quality` | `u8` | `80` | Alpha-channel quality (1 – 100) preserves visual transparency. Higher value keep the original transparency level, lower value produces smaller file size. |
+| `speed` | `u8` | `6` | Encoder speed (1 – 10). Higher value encodes faster, lower value produces smaller file size. |
 | `strip_exif` | `bool` | `true` | Strip all EXIF/IPTC/XMP metadata (recommended). |
 | `max_input_bytes` | `u64` | `104_857_600` (100 MiB) | Maximum raw input file size. |
-| `max_pixels` | `u64` | `268_435_456` (≈ 268 MP) | Max pixel count (width × height). |
+| `max_pixels` | `u64` | `268_435_456` (268 MP) | Max pixel count (width × height). |
 | `memory_limit_bytes` | `u64` | `536_870_912` (512 MiB) | Peak memory budget for conversion. |
 | `output_resolutions` | `Vec<OutputResolution>` | `[Original]` | Which resolution(s) to produce. See [Output resolution control](#output-resolution-control). |
 
@@ -232,9 +232,9 @@ raise the limit accordingly or configure a higher-memory Lambda:
 | Image size | Min recommended `memory_limit_bytes` |
 |-----------|--------------------------------------|
 | ≤ 25 MP  | 512 MiB (default)                    |
-| ≤ 50 MP  | 512 MiB (default, ~191 MiB buf)      |
+| ≤ 50 MP  | 512 MiB (default)                    |
 | ≤ 100 MP | 768 MiB                              |
-| ≤ 200 MP | 1024 MiB (pixel buf alone ~763 MiB)  |
+| ≤ 200 MP | 1024 MiB                             |
 
 ```rust
 use img2avif::{Config, Error};
@@ -323,7 +323,7 @@ img2avif = { version = "0.1", features = ["raw-experimental"] }
 Measurements on an `m6i.large` EC2 (2 vCPU, 8 GB, Amazon Linux 2023,
 `RUSTFLAGS="-C target-cpu=native"`).
 
-### Throughput (quality=80, speed=6)
+### Throughput Estimates (quality=80, speed=6)
 
 | Input size | Encode time | AVIF size | Peak RSS |
 |-----------|-------------|-----------|----------|
@@ -373,24 +373,14 @@ Environment:
     IMG2AVIF_QUALITY: "80"
 ```
 
-### 3. Memory and Cost Estimates
+### 3. Memory Estimates
 
-| Image size | Recommended Lambda memory |
+| Image size | Minimum Lambda memory |
 |-----------|--------------------------|
 | ≤ 8 MP | 256 MB |
-| ≤ 25 MP | 512 MB |
 | ≤ 50 MP | 512 MB |
 | ≤ 100 MP | 768 MB |
 | ≤ 200 MP | 1024 MB+ |
-
-At $0.0000166667 per GB-second (x86_64, `us-east-1`):
-
-| Image size | Duration (speed=10) | Memory | Cost / invocation |
-|-----------|---------------------|--------|------------------|
-| 1 MP | ~120 ms | 256 MB | $0.000001 |
-| 10 MP | ~1.1 s | 512 MB | $0.0000095 |
-| 50 MP | ~5 s | 512 MB | $0.000043 |
-| 100 MB (25 MP) | ~12 s | 512 MB | $0.000102 |
 
 ---
 
