@@ -1,15 +1,27 @@
 name: Publish to Cargo
+
 on:
   push:
     tags:
-      - 'v*' # Triggers when you push a tag like v1.0.0
+      - 'v*' # Triggers when you create a release/tag like v0.5.0
 
 jobs:
   publish:
+    name: Publish to crates.io
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Publish
+        with:
+          toolchain: 1.85 # Matches Cargo.toml MSRV
+
+      - name: Install Native Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libheif-dev
+
+      - name: Publish to crates.io
         run: cargo publish --token ${{ secrets.CRATES_TOKEN }}
