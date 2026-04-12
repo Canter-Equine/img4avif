@@ -76,14 +76,10 @@ jobs:
             target
           key: ${{ runner.os }}-stable-${{ hashFiles('**/Cargo.lock') }}
 
-      # Ubuntu: full test suite + convert every fixture
+      # Ubuntu: full test suite (includes fixture_timing and all integration tests)
       - name: Run unit and integration tests
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --lib --tests -- --nocapture
-
-      - name: Run fixture conversion timing test (all fixtures)
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo test --test fixture_timing valid_fixtures_timed_conversion -- --nocapture
 
       # macOS / Windows: verify it compiles, then run the smallest fixture only
       - name: Build (compile check)
@@ -106,6 +102,10 @@ jobs:
             SIZE=$(stat -c%s "$RLIB" 2>/dev/null || stat -f%z "$RLIB")
             echo "Compiled .rlib size (${{ matrix.os }}): $((SIZE / 1024)) KB  ($SIZE bytes)"
             echo "File: $RLIB"
+            if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "$SIZE" -gt $((5 * 1024 * 1024)) ]; then
+              echo "ERROR: rlib $((SIZE / 1024)) KB exceeds 5 MB limit"
+              exit 1
+            fi
           else
             echo "No libimg4avif*.rlib found in target/release"
           fi
@@ -172,34 +172,6 @@ jobs:
 
       - name: cargo doc (deny warnings)
         run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
-
-  binary-size:
-    name: Binary size check
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build release
-        run: cargo build --release
-
-      - name: Check .rlib size < 5 MB
-        run: |
-          RLIB=$(find target/release -name "libimg4avif*.rlib" | head -1)
-          if [ -z "$RLIB" ]; then
-            echo "No .rlib found — skipping size check"
-            exit 0
-          fi
-          SIZE=$(stat -c%s "$RLIB")
-          echo "rlib size: $((SIZE / 1024)) KB"
-          if [ "$SIZE" -gt $((5 * 1024 * 1024)) ]; then
-            echo "ERROR: rlib $((SIZE / 1024)) KB exceeds 5 MB limit"
-            exit 1
-          fi
 
   audit:
     name: Security audit
