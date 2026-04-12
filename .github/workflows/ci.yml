@@ -83,6 +83,35 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --test fixture_timing -- --nocapture
 
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Print compiled binary size (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          RLIB=$(find target/release -name "libimg4avif*.rlib" | head -1)
+          if [ -n "$RLIB" ]; then
+            SIZE=$(stat -c%s "$RLIB" 2>/dev/null || stat -f%z "$RLIB")
+            echo "Compiled .rlib size (${{ matrix.os }}): $((SIZE / 1024)) KB  ($SIZE bytes)"
+            echo "File: $RLIB"
+          else
+            echo "No libimg4avif*.rlib found in target/release"
+          fi
+
+      - name: Print compiled binary size (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $rlib = Get-ChildItem -Path target/release -Filter "libimg4avif*.rlib" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($rlib) {
+            $sizeKB = [math]::Round($rlib.Length / 1024, 1)
+            Write-Host "Compiled .rlib size (${{ matrix.os }}): $sizeKB KB  ($($rlib.Length) bytes)"
+            Write-Host "File: $($rlib.FullName)"
+          } else {
+            Write-Host "No libimg4avif*.rlib found in target/release"
+          }
+
       - name: Upload fixture conversion outputs
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
@@ -149,7 +178,7 @@ jobs:
 
       - name: Check .rlib size < 5 MB
         run: |
-          RLIB=$(find target/release -name "libimagine_avif*.rlib" | head -1)
+          RLIB=$(find target/release -name "libimg4avif*.rlib" | head -1)
           if [ -z "$RLIB" ]; then
             echo "No .rlib found — skipping size check"
             exit 0

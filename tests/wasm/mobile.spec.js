@@ -4,19 +4,19 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Path to the compiled imagine-avif WASM binary produced by:
+ * Path to the compiled img4avif WASM binary produced by:
  *
  *   cargo build --target wasm32-unknown-unknown
  *
  * With `crate-type = ["rlib", "cdylib"]` in Cargo.toml, Cargo emits a
- * `libimagine_avif.wasm` (cdylib) alongside the rlib.
+ * `libimg4avif.wasm` (cdylib) alongside the rlib.
  */
 const WASM_PATH = path.resolve(
   __dirname,
-  '../../target/wasm32-unknown-unknown/debug/libimagine_avif.wasm',
+  '../../target/wasm32-unknown-unknown/debug/libimg4avif.wasm',
 );
 
-test.describe('imagine-avif WASM mobile compatibility', () => {
+test.describe('img4avif WASM mobile compatibility', () => {
   /**
    * Verify the compiled WASM binary is structurally valid (WebAssembly.validate)
    * and can be instantiated (WebAssembly.compile) in the current browser engine.
@@ -49,7 +49,7 @@ test.describe('imagine-avif WASM mobile compatibility', () => {
 
     // Intercept a synthetic fetch so the WASM bytes never have to cross the
     // CDP serialisation boundary as a raw array (avoids size limits).
-    await page.route('**/imagine_avif.wasm', (route) => {
+    await page.route('**/img4avif.wasm', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/wasm',
@@ -59,7 +59,7 @@ test.describe('imagine-avif WASM mobile compatibility', () => {
 
     const result = await page.evaluate(async () => {
       try {
-        const response = await fetch('/imagine_avif.wasm');
+        const response = await fetch('/img4avif.wasm');
         const buffer = await response.arrayBuffer();
         const bytes = new Uint8Array(buffer);
 

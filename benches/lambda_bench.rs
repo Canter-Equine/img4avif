@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use imagine_avif::{Config, Converter};
+use img4avif::{Config, Converter};
 
 fn make_png(width: u32, height: u32) -> Vec<u8> {
     let img = image::RgbaImage::from_pixel(width, height, image::Rgba([100u8, 150, 200, 255]));
@@ -16,7 +16,7 @@ fn bench_conversion(c: &mut Criterion) {
         (3162, 3162, "10MP"),
     ];
 
-    let mut group = c.benchmark_group("imagine-avif/conversion");
+    let mut group = c.benchmark_group("img4avif/conversion");
     group.sample_size(10);
 
     for &(w, h, label) in sizes {

@@ -2,7 +2,7 @@
 const { defineConfig, devices } = require('@playwright/test');
 
 /**
- * Playwright configuration for imagine-avif WASM mobile browser tests.
+ * Playwright configuration for img4avif WASM mobile browser tests.
  *
  * Two browser projects are defined:
  *  - ios-safari   : WebKit engine, iPhone 14 viewport + user-agent
