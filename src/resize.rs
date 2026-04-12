@@ -163,12 +163,13 @@ pub(crate) fn resize_raw_image(
 
     match pixels {
         Pixels::Rgba8(data) => {
-            let buf = image::RgbaImage::from_raw(width, height, data.to_vec()).ok_or_else(|| {
-                Error::Internal(format!(
+            let buf =
+                image::RgbaImage::from_raw(width, height, data.to_vec()).ok_or_else(|| {
+                    Error::Internal(format!(
                     "RGBA8 pixel buffer size does not match declared dimensions {width}×{height}; \
                      this is a bug — please report it"
                 ))
-            })?;
+                })?;
             let resized = image::imageops::resize(
                 &buf,
                 new_width,
