@@ -6,7 +6,7 @@
 //! cargo test --test memory_stress -- --ignored --nocapture
 //! ```
 
-use imagine_avif::{Config, Converter, MemoryGuard};
+use img4avif::{Config, Converter, MemoryGuard};
 
 fn make_png(width: u32, height: u32) -> Vec<u8> {
     let img = image::RgbaImage::from_pixel(width, height, image::Rgba([128u8, 64, 32, 255]));
@@ -92,7 +92,7 @@ fn two_hundred_megapixel_exceeds_default_512mib_limit() {
     // no-op (fail-open), so we only assert on Linux.
     #[cfg(target_os = "linux")]
     assert!(
-        matches!(result, Err(imagine_avif::Error::MemoryExceeded { .. })),
+        matches!(result, Err(img4avif::Error::MemoryExceeded { .. })),
         "expected MemoryExceeded for 200 MP image under 512 MiB limit, got: {result:?}"
     );
     #[cfg(not(target_os = "linux"))]

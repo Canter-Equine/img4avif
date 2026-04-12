@@ -1,7 +1,7 @@
 {
-  "name": "imagine-avif-wasm-tests",
+  "name": "img4avif-wasm-tests",
   "version": "0.5.0",
-  "description": "Playwright mobile browser tests for imagine-avif WASM (wasm32-unknown-unknown)",
+  "description": "Playwright mobile browser tests for img4avif WASM (wasm32-unknown-unknown)",
   "private": true,
   "scripts": {
     "test": "playwright test"

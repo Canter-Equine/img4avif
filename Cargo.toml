@@ -1,5 +1,5 @@
 [package]
-name = "imagine-avif"
+name = "img4avif"
 version = "0.5.0"
 edition = "2021"
 rust-version = "1.85"
@@ -9,8 +9,8 @@ license = "Apache-2.0"
 readme = "README.md"
 keywords = ["avif", "image", "convert", "heic", "hdr"]
 categories = ["multimedia::images", "encoding"]
-repository = "https://github.com/Canter-Equine/imagine-avif"
-documentation = "https://docs.rs/imagine-avif"
+repository = "https://github.com/Canter-Equine/img4avif"
+documentation = "https://docs.rs/img4avif"
 exclude = ["/tests/fixtures", "/examples/fixtures", "/benches", "/fuzz"]
 
 # rlib  – Rust-to-Rust linking (tests, examples, downstream crates).
@@ -24,7 +24,7 @@ default = []
 
 # Structured pipeline logging via the `log` crate facade.
 #
-# When enabled, `imagine-avif` emits log records at every major pipeline stage
+# When enabled, `img4avif` emits log records at every major pipeline stage
 # (input size check, metadata strip, decode, memory guard, encode, output
 # validation).  Install any `log`-compatible subscriber (e.g. `env_logger`,
 # `tracing-log`, `simplelog`) in your application to consume these records.
@@ -37,11 +37,11 @@ default = []
 # Usage:
 #
 #   [dependencies]
-#   imagine-avif = { version = "0.5", features = ["dev-logging"] }
+#   img4avif = { version = "0.5", features = ["dev-logging"] }
 #
 # Then in your application initialise a subscriber, e.g.:
 #
-#   env_logger::init(); // RUST_LOG=imagine_avif=debug cargo run
+#   env_logger::init(); // RUST_LOG=img4avif=debug cargo run
 dev-logging = ["dep:log"]
 
 # ⚠️  EXPERIMENTAL: HEIC/HEIF support requires the libheif C library at link time.

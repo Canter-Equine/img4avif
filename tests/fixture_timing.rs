@@ -17,9 +17,9 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use imagine_avif::{Config, Converter, MemoryGuard};
+use img4avif::{Config, Converter, MemoryGuard};
 
-/// Extensions that `imagine-avif` accepts in its default build.
+/// Extensions that `img4avif` accepts in its default build.
 /// HEIC/HEIF requires the `heic-experimental` feature and is excluded.
 const VALID_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
 
@@ -54,7 +54,7 @@ fn valid_fixtures_timed_conversion() {
     entries.sort();
 
     println!();
-    println!("imagine-avif fixture conversion timing  (speed=6, quality=80)");
+    println!("img4avif fixture conversion timing  (speed=6, quality=80)");
     println!("{}", "=".repeat(72));
     println!(
         "{:<46} {:>8}  {:>9}  {:>9}",

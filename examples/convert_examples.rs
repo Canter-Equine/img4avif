@@ -26,13 +26,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use imagine_avif::{Config, Converter, Error};
+use img4avif::{Config, Converter, Error};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// File extensions we recognise as valid image inputs for imagine-avif **in
+/// File extensions we recognise as valid image inputs for img4avif **in
 /// the default build** (no optional feature flags).  HEIC/HEIF requires the
 /// `heic-experimental` feature and is therefore excluded here — those files
 /// are expected to fail with `UnsupportedFormat`, which is correct behaviour.
@@ -96,7 +96,7 @@ fn main() {
         .strip_exif(true);
     let converter = Converter::new(config).expect("failed to build Converter");
 
-    println!("imagine-avif — batch conversion of examples/");
+    println!("img4avif — batch conversion of examples/");
     println!("=========================================");
     println!();
     println!("Output directory: {}", out_dir.display());
