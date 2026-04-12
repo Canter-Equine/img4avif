@@ -111,25 +111,34 @@ fn valid_fixtures_timed_conversion() {
 /// without running the full (potentially slow) fixture suite.
 #[test]
 fn smallest_fixture_timed_conversion() {
-    let valid_dir = Path::new("examples/fixtures/valid");
-    let out_dir = Path::new("examples/out");
-    fs::create_dir_all(out_dir).expect("failed to create examples/out/");
+    // Use an absolute path anchored to the crate root so the test works
+    // regardless of the working directory (important on Windows CI runners).
+    let valid_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/valid");
+    let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/out");
+    fs::create_dir_all(&out_dir).expect("failed to create examples/out/");
 
     let config = Config::default().quality(80).speed(6);
     let converter = Converter::new(config).expect("failed to build Converter");
 
-    let smallest = fs::read_dir(valid_dir)
-        .expect("examples/fixtures/valid/ not found")
+    let smallest = fs::read_dir(&valid_dir)
+        .unwrap_or_else(|e| {
+            panic!(
+                "examples/fixtures/valid/ not found at {}: {e}",
+                valid_dir.display()
+            )
+        })
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.is_file() && is_image(p))
         .min_by_key(|p| fs::metadata(p).map(|m| m.len()).unwrap_or(u64::MAX))
         .expect("no valid image fixtures found");
 
-    let file_name = smallest
-        .file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or("?");
+    let file_name = smallest.file_name().and_then(OsStr::to_str).unwrap_or("?");
+    assert!(
+        smallest.exists(),
+        "fixture file disappeared before read: {}",
+        smallest.display()
+    );
     let data = fs::read(&smallest).unwrap_or_else(|e| panic!("read {file_name}: {e}"));
 
     println!();

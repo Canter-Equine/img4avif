@@ -64,7 +64,17 @@ test.describe('img4avif WASM mobile compatibility', () => {
       );
     }
 
-    await page.goto('about:blank');
+    // Serve a minimal HTML shell so the page has a valid http:// origin.
+    // Without this, relative and absolute-path URLs passed to fetch() are
+    // rejected by both WebKit ("URL is not valid") and Chromium
+    // ("Failed to parse URL").
+    await page.route('http://localhost/', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<html><head></head><body></body></html>',
+      });
+    });
 
     // Intercept a synthetic fetch so the WASM bytes never have to cross the
     // CDP serialisation boundary as a raw array (avoids size limits).
@@ -76,9 +86,11 @@ test.describe('img4avif WASM mobile compatibility', () => {
       });
     });
 
+    await page.goto('http://localhost/');
+
     const result = await page.evaluate(async () => {
       try {
-        const response = await fetch('/img4avif.wasm');
+        const response = await fetch('http://localhost/img4avif.wasm');
         const buffer = await response.arrayBuffer();
         const bytes = new Uint8Array(buffer);
 
