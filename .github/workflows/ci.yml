@@ -78,6 +78,14 @@ jobs:
       - name: Run unit and integration tests
         run: cargo test --lib --tests
 
+      - name: Upload fixture conversion outputs
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: examples-out
+          path: examples/out/
+          if-no-files-found: ignore
+
   msrv:
     name: MSRV (Rust 1.85)
     runs-on: ubuntu-latest
@@ -123,7 +131,6 @@ jobs:
   binary-size:
     name: Binary size check
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     steps:
@@ -194,9 +201,8 @@ jobs:
         run: cargo build --target aarch64-unknown-linux-gnu --release
 
   memory-stress:
-    name: 50 MP memory stress test
+    name: Memory stress test (200 MP + 100 MB)
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     steps:
@@ -214,5 +220,8 @@ jobs:
             target
           key: memory-stress-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Run 100 MB image stress test
+        run: cargo test --test memory_stress hundred_mb_image_converts_successfully -- --ignored --nocapture
+
       - name: Run 50 MP stress test
-        run: cargo test --test memory_stress -- --ignored --nocapture
+        run: cargo test --test memory_stress fifty_megapixel_converts_successfully -- --ignored --nocapture
