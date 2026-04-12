@@ -8,6 +8,14 @@ I forgot to CHANGELOG the updates from 0.2-0.4, sorry.
 
 ---
 
+## [0.5.2] — 2026-04-12
+
+### Changed
+
+- Version bump to 0.5.2.
+
+---
+
 ## [0.5.0] — 2026-04-12
 
 ### Added
