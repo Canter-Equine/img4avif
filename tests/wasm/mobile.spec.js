@@ -4,17 +4,36 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Path to the compiled img4avif WASM binary produced by:
+ * Locate the compiled img4avif WASM binary produced by:
  *
  *   cargo build --target wasm32-unknown-unknown
  *
  * With `crate-type = ["rlib", "cdylib"]` in Cargo.toml, Cargo emits a
- * `libimg4avif.wasm` (cdylib) alongside the rlib.
+ * `.wasm` cdylib into target/wasm32-unknown-unknown/debug/.  The exact
+ * filename depends on how Cargo names the cdylib output (e.g. `libimg4avif.wasm`
+ * or `img4avif.wasm`), so we search for it rather than hard-coding the name.
  */
-const WASM_PATH = path.resolve(
-  __dirname,
-  '../../target/wasm32-unknown-unknown/debug/libimg4avif.wasm',
-);
+const WASM_DIR = path.resolve(__dirname, '../../target/wasm32-unknown-unknown/debug');
+
+function findWasmBinary() {
+  if (!fs.existsSync(WASM_DIR)) {
+    throw new Error(
+      `WASM output directory not found: ${WASM_DIR}\n` +
+        'Run `cargo build --target wasm32-unknown-unknown` first.',
+    );
+  }
+  const wasmFiles = fs.readdirSync(WASM_DIR).filter((f) => f.endsWith('.wasm'));
+  if (wasmFiles.length === 0) {
+    throw new Error(
+      `No .wasm file found in ${WASM_DIR}.\n` +
+        'Run `cargo build --target wasm32-unknown-unknown` first.',
+    );
+  }
+  // Prefer the cdylib output (usually the only .wasm in the dir).
+  return path.join(WASM_DIR, wasmFiles[0]);
+}
+
+const WASM_PATH = findWasmBinary();
 
 test.describe('img4avif WASM mobile compatibility', () => {
   /**

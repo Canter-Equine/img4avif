@@ -103,3 +103,58 @@ fn valid_fixtures_timed_conversion() {
         "one or more fixture conversions failed — check output above"
     );
 }
+
+/// Convert only the smallest valid image in `examples/fixtures/valid/`.
+///
+/// Used by the macOS and Windows CI matrix jobs where we only need to confirm
+/// the code compiles and can successfully convert at least one real file
+/// without running the full (potentially slow) fixture suite.
+#[test]
+fn smallest_fixture_timed_conversion() {
+    let valid_dir = Path::new("examples/fixtures/valid");
+    let out_dir = Path::new("examples/out");
+    fs::create_dir_all(out_dir).expect("failed to create examples/out/");
+
+    let config = Config::default().quality(80).speed(6);
+    let converter = Converter::new(config).expect("failed to build Converter");
+
+    let smallest = fs::read_dir(valid_dir)
+        .expect("examples/fixtures/valid/ not found")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && is_image(p))
+        .min_by_key(|p| fs::metadata(p).map(|m| m.len()).unwrap_or(u64::MAX))
+        .expect("no valid image fixtures found");
+
+    let file_name = smallest
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("?");
+    let data = fs::read(&smallest).unwrap_or_else(|e| panic!("read {file_name}: {e}"));
+
+    println!();
+    println!("img4avif smallest-fixture timing  (speed=6, quality=80)");
+    println!("{}", "=".repeat(72));
+
+    let rss_before = MemoryGuard::current_rss_bytes().unwrap_or(0);
+    let start = Instant::now();
+    let avif = converter
+        .convert(&data)
+        .unwrap_or_else(|e| panic!("convert {file_name} failed: {e}"));
+    let elapsed_ms = start.elapsed().as_millis();
+    let rss_after = MemoryGuard::current_rss_bytes().unwrap_or(0);
+    let rss_delta_mb = rss_after.saturating_sub(rss_before) / (1024 * 1024);
+    let avif_kb = avif.len() / 1024;
+
+    println!(
+        "{:<46} {:>8} ms  rss_Δ={} MB  avif={} KB",
+        file_name, elapsed_ms, rss_delta_mb, avif_kb
+    );
+
+    let out_path = out_dir.join(format!("{file_name}.avif"));
+    fs::write(&out_path, &avif)
+        .unwrap_or_else(|e| panic!("write {} failed: {e}", out_path.display()));
+
+    println!("{}", "-".repeat(72));
+    println!();
+}
