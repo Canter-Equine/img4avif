@@ -1,13 +1,13 @@
 [package]
 name = "img4avif"
-version = "0.5.0"
-edition = "2015"
+version = "0.5.1"
+edition = "2021"
 rust-version = "1.85"
 authors = ["Canter-Equine"]
 description = "Serverless-optimized image conversion: JPEG/PNG/WebP/HEIC → AVIF with HDR10 input support (pure Rust, Lambda-ready)"
 license = "Apache-2.0"
 readme = "README.md"
-keywords = ["avif", "image", "convert", "heic", "hdr", "rust native"]
+keywords = ["avif", "image", "convert", "heic", "hdr"]
 categories = ["multimedia::images", "encoding"]
 repository = "https://github.com/Canter-Equine/img4avif"
 documentation = "https://docs.rs/img4avif"
