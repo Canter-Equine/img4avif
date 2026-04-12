@@ -13,6 +13,9 @@ repository = "https://github.com/Canter-Equine/imagine-avif"
 documentation = "https://docs.rs/imagine-avif"
 exclude = ["/tests/fixtures", "/examples/fixtures", "/benches", "/fuzz"]
 
+# rlib  – Rust-to-Rust linking (tests, examples, downstream crates).
+# cdylib – produces a `.wasm` binary when targeting wasm32-unknown-unknown,
+#           enabling the Playwright mobile-browser tests in tests/wasm/.
 [lib]
 crate-type = ["rlib", "cdylib"]
 
