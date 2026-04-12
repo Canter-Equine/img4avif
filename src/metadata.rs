@@ -42,13 +42,23 @@ fn detect_format(data: &[u8]) -> ImageFormat {
 /// returning [`crate::Error::UnsupportedFormat`] when `strip_exif = true`
 /// was requested.
 ///
+/// For **recognised** formats (JPEG, PNG, WebP) the function always returns
+/// `Some`: if the container parser fails for a malformed-but-detected file the
+/// original bytes are returned unchanged, rather than propagating `None` and
+/// incorrectly telling the caller that the format is unsupported.
+///
 /// The format is detected from magic bytes before any allocation occurs, so
 /// `Bytes::copy_from_slice` is called **at most once** per invocation.
 pub fn strip_metadata(data: &[u8]) -> Option<Vec<u8>> {
     match detect_format(data) {
         ImageFormat::Jpeg => {
-            let mut jpeg =
-                img_parts::jpeg::Jpeg::from_bytes(Bytes::copy_from_slice(data)).ok()?;
+            let Ok(mut jpeg) = img_parts::jpeg::Jpeg::from_bytes(Bytes::copy_from_slice(data))
+            else {
+                // Format was detected as JPEG but img_parts failed to parse it.
+                // Pass the data through unchanged so the decoder (not the strip
+                // step) surfaces the correct error.
+                return Some(data.to_vec());
+            };
             jpeg.set_exif(None);
             jpeg.set_icc_profile(None);
             jpeg.segments_mut()
@@ -56,8 +66,9 @@ pub fn strip_metadata(data: &[u8]) -> Option<Vec<u8>> {
             Some(jpeg.encoder().bytes().to_vec())
         }
         ImageFormat::Png => {
-            let mut png =
-                img_parts::png::Png::from_bytes(Bytes::copy_from_slice(data)).ok()?;
+            let Ok(mut png) = img_parts::png::Png::from_bytes(Bytes::copy_from_slice(data)) else {
+                return Some(data.to_vec());
+            };
             png.chunks_mut().retain(|chunk| {
                 let tag = chunk.kind();
                 tag != *b"tEXt" && tag != *b"zTXt" && tag != *b"iTXt" && tag != *b"eXIf"
@@ -65,7 +76,9 @@ pub fn strip_metadata(data: &[u8]) -> Option<Vec<u8>> {
             Some(png.encoder().bytes().to_vec())
         }
         ImageFormat::WebP => {
-            let mut webp = WebP::from_bytes(Bytes::copy_from_slice(data)).ok()?;
+            let Ok(mut webp) = WebP::from_bytes(Bytes::copy_from_slice(data)) else {
+                return Some(data.to_vec());
+            };
             webp.set_exif(None);
             webp.set_icc_profile(None);
             // Remove the XMP chunk (four-CC `XMP `) if present.
@@ -167,5 +180,60 @@ mod tests {
         let decoded = image::load_from_memory(&stripped).expect("stripped WebP should decode");
         assert_eq!(decoded.width(), 8);
         assert_eq!(decoded.height(), 8);
+    }
+
+    /// Malformed JPEG/PNG/WebP data (correct magic bytes but corrupt body)
+    /// must return `Some` (pass-through), not `None`.
+    ///
+    /// Returning `None` would cause the caller to emit an `UnsupportedFormat`
+    /// error, which is incorrect for a format we actually recognise.
+    #[test]
+    fn malformed_jpeg_returns_some_passthrough() {
+        // JPEG magic bytes followed by garbage.
+        let data = [0xFF, 0xD8, 0xDE, 0xAD, 0xBE, 0xEF, 0x00];
+        let result = strip_metadata(&data);
+        assert!(
+            result.is_some(),
+            "malformed-but-detected JPEG should return Some, not None"
+        );
+        assert_eq!(
+            result.unwrap(),
+            data,
+            "passthrough should be identical to input"
+        );
+    }
+
+    #[test]
+    fn malformed_png_returns_some_passthrough() {
+        let mut data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        data.extend_from_slice(b"GARBAGE");
+        let result = strip_metadata(&data);
+        assert!(
+            result.is_some(),
+            "malformed-but-detected PNG should return Some, not None"
+        );
+        assert_eq!(
+            result.unwrap(),
+            data,
+            "passthrough should be identical to input"
+        );
+    }
+
+    #[test]
+    fn malformed_webp_returns_some_passthrough() {
+        let mut data = [0u8; 20];
+        data[..4].copy_from_slice(b"RIFF");
+        data[8..12].copy_from_slice(b"WEBP");
+        // Rest is zeros — img_parts will fail to parse this as a valid WebP.
+        let result = strip_metadata(&data);
+        assert!(
+            result.is_some(),
+            "malformed-but-detected WebP should return Some, not None"
+        );
+        assert_eq!(
+            result.unwrap(),
+            data,
+            "passthrough should be identical to input"
+        );
     }
 }
