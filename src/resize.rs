@@ -17,6 +17,7 @@
 use crate::decoder::{Pixels, RawImage};
 use crate::error::Error;
 use crate::logging::{img_debug, img_info};
+use std::sync::Arc;
 
 /// Controls the output resolution applied before AVIF encoding.
 ///
@@ -162,7 +163,7 @@ pub(crate) fn resize_raw_image(
 
     match pixels {
         Pixels::Rgba8(data) => {
-            let buf = image::RgbaImage::from_raw(width, height, data.clone()).ok_or_else(|| {
+            let buf = image::RgbaImage::from_raw(width, height, data.to_vec()).ok_or_else(|| {
                 Error::Internal(format!(
                     "RGBA8 pixel buffer size does not match declared dimensions {width}×{height}; \
                      this is a bug — please report it"
@@ -177,13 +178,13 @@ pub(crate) fn resize_raw_image(
             Ok(RawImage {
                 width: new_width,
                 height: new_height,
-                pixels: Pixels::Rgba8(resized.into_raw()),
+                pixels: Pixels::Rgba8(Arc::from(resized.into_raw())),
             })
         }
         Pixels::Rgba16(data) => {
             use image::{ImageBuffer, Rgba};
             let buf: ImageBuffer<Rgba<u16>, Vec<u16>> =
-                ImageBuffer::from_raw(width, height, data.clone())
+                ImageBuffer::from_raw(width, height, data.to_vec())
                     .ok_or_else(|| Error::Internal(format!(
                         "RGBA16 pixel buffer size does not match declared dimensions {width}×{height}; \
                          this is a bug — please report it"
@@ -197,7 +198,7 @@ pub(crate) fn resize_raw_image(
             Ok(RawImage {
                 width: new_width,
                 height: new_height,
-                pixels: Pixels::Rgba16(resized.into_raw()),
+                pixels: Pixels::Rgba16(Arc::from(resized.into_raw())),
             })
         }
     }
@@ -213,7 +214,7 @@ mod tests {
         RawImage {
             width,
             height,
-            pixels: Pixels::Rgba8(pixel.repeat(width as usize * height as usize)),
+            pixels: Pixels::Rgba8(Arc::from(pixel.repeat(width as usize * height as usize))),
         }
     }
 
@@ -222,7 +223,7 @@ mod tests {
         RawImage {
             width,
             height,
-            pixels: Pixels::Rgba16(pixel.repeat(width as usize * height as usize)),
+            pixels: Pixels::Rgba16(Arc::from(pixel.repeat(width as usize * height as usize))),
         }
     }
 
@@ -232,6 +233,28 @@ mod tests {
         let out = resize_raw_image(&raw, OutputResolution::Original).unwrap();
         assert_eq!(out.width, 4000);
         assert_eq!(out.height, 3000);
+    }
+
+    /// No-op resize paths share the pixel buffer via Arc (no deep copy).
+    #[test]
+    fn no_op_resize_shares_arc_allocation() {
+        let raw = solid_rgba8(640, 480);
+
+        // OutputResolution::Original must share the same Arc allocation.
+        let out_original = resize_raw_image(&raw, OutputResolution::Original).unwrap();
+        if let (Pixels::Rgba8(src), Pixels::Rgba8(dst)) = (&raw.pixels, &out_original.pixels) {
+            assert!(Arc::ptr_eq(src, dst), "Original path must share the Arc");
+        } else {
+            panic!("expected Rgba8 pixels");
+        }
+
+        // Already-small path (width <= target) must also share the Arc.
+        let out_2560 = resize_raw_image(&raw, OutputResolution::Width2560).unwrap();
+        if let (Pixels::Rgba8(src), Pixels::Rgba8(dst)) = (&raw.pixels, &out_2560.pixels) {
+            assert!(Arc::ptr_eq(src, dst), "No-op resize must share the Arc");
+        } else {
+            panic!("expected Rgba8 pixels");
+        }
     }
 
     #[test]
@@ -355,7 +378,7 @@ mod tests {
             width: 2000,
             height: 100,
             // Only 1 pixel worth of data instead of 2000 * 100 pixels
-            pixels: Pixels::Rgba8(vec![255u8, 0, 0, 255]),
+            pixels: Pixels::Rgba8(Arc::from([255u8, 0, 0, 255].as_slice())),
         };
         let err = resize_raw_image(&raw, OutputResolution::Width1080).unwrap_err();
         assert!(
@@ -369,7 +392,7 @@ mod tests {
         let raw = RawImage {
             width: 2000,
             height: 100,
-            pixels: Pixels::Rgba16(vec![65535u16, 0, 0, 65535]),
+            pixels: Pixels::Rgba16(Arc::from([65535u16, 0, 0, 65535].as_slice())),
         };
         let err = resize_raw_image(&raw, OutputResolution::Width1080).unwrap_err();
         assert!(
