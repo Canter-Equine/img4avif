@@ -323,13 +323,13 @@ img2avif = { version = "0.1", features = ["raw-experimental"] }
 Measurements on an `m6i.large` EC2 (2 vCPU, 8 GB, Amazon Linux 2023,
 `RUSTFLAGS="-C target-cpu=native"`).
 
-### Throughput Estimates (quality=80, speed=6)
+### Throughput Estimates (quality=80)
 
 | Input size | Encode time | AVIF size | Peak RSS |
 |-----------|-------------|-----------|----------|
-| 1 MP (1000 × 1000 PNG) | ~220 ms | ~45 KB | ~18 MB |
-| 10 MP (3162 × 3162 PNG) | ~1.8 s | ~350 KB | ~65 MB |
-| 50 MP (8944 × 5615 PNG) | ~9 s | ~1.6 MB | ~140 MB |
+| 1 MP (1000 × 1000 PNG, speed=6) | ~220 ms | ~45 KB | ~18 MB |
+| 10 MP (3162 × 3162 PNG, speed=6) | ~1.8 s | ~350 KB | ~65 MB |
+| 50 MP (8944 × 5615 PNG, speed=6) | ~9 s | ~1.6 MB | ~140 MB |
 | 100 MB (5000 × 5000 PNG, speed=10) | ~12 s | ~2.2 MB | ~195 MB |
 | 200 MP (16383 × 12207 PNG, speed=10) | ~60 s | ~8.5 MB | ~870 MB |
 
