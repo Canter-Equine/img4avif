@@ -370,7 +370,7 @@ Layers:
 Environment:
   Variables:
     # Optional: override quality at runtime
-    IMAGINE_AVIF_QUALITY: "80"
+    IMG4AVIF_QUALITY: "80"
 ```
 
 ### 3. Memory Estimates
