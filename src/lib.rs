@@ -1,4 +1,4 @@
-//! # img2avif
+//! # img4avif
 //!
 //! Converts **JPEG, PNG, WebP, and HEIC/HEIF** images to AVIF using the
 //! pure-Rust `rav1e` AV1 encoder.  Designed for serverless workloads (AWS
@@ -8,9 +8,9 @@
 //! ## Quick start
 //!
 //! ```rust,no_run
-//! use img2avif::{Config, Converter};
+//! use img4avif::{Config, Converter};
 //!
-//! # fn main() -> Result<(), img2avif::Error> {
+//! # fn main() -> Result<(), img4avif::Error> {
 //! let jpeg_bytes = std::fs::read("photo.jpg")?;
 //!
 //! let config = Config::default()
@@ -67,13 +67,13 @@
 //!
 //! ## Output resolution control
 //!
-//! By default `img2avif` encodes images at their original resolution.  Set
+//! By default `img4avif` encodes images at their original resolution.  Set
 //! [`Config::output_resolutions`] to resize before encoding:
 //!
 //! ```rust,no_run
-//! use img2avif::{Config, Converter, OutputResolution};
+//! use img4avif::{Config, Converter, OutputResolution};
 //!
-//! # fn main() -> Result<(), img2avif::Error> {
+//! # fn main() -> Result<(), img4avif::Error> {
 //! let src = std::fs::read("photo.jpg")?;
 //!
 //! // Single output at 1080 px wide:
@@ -144,9 +144,9 @@ pub use resize::OutputResolution;
 /// # Example
 ///
 /// ```rust,no_run
-/// use img2avif::{Config, Converter, ConversionOutput, OutputResolution};
+/// use img4avif::{Config, Converter, ConversionOutput, OutputResolution};
 ///
-/// # fn main() -> Result<(), img2avif::Error> {
+/// # fn main() -> Result<(), img4avif::Error> {
 /// let config = Config::default().output_resolutions(vec![
 ///     OutputResolution::Original,
 ///     OutputResolution::Width1080,
@@ -175,9 +175,9 @@ pub struct ConversionOutput {
 /// # Example
 ///
 /// ```rust,no_run
-/// use img2avif::{Config, Converter};
+/// use img4avif::{Config, Converter};
 ///
-/// # fn main() -> Result<(), img2avif::Error> {
+/// # fn main() -> Result<(), img4avif::Error> {
 /// let converter = Converter::new(Config::default())?;
 /// let avif = converter.convert(&std::fs::read("input.png")?)?;
 /// std::fs::write("output.avif", avif)?;
@@ -198,7 +198,7 @@ impl From<Config> for Converter {
     /// # Example
     ///
     /// ```rust
-    /// use img2avif::{Config, Converter};
+    /// use img4avif::{Config, Converter};
     ///
     /// let converter = Converter::from(Config::default());
     /// // or equivalently:

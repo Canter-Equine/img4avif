@@ -11,9 +11,9 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 
-use img2avif::{Config, Converter};
+use img4avif::{Config, Converter};
 
-/// Extensions that `img2avif` accepts in its default build.
+/// Extensions that `img4avif` accepts in its default build.
 /// HEIC/HEIF requires the `heic-experimental` feature and is excluded.
 const VALID_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
 

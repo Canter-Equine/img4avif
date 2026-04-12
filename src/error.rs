@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// All errors that can be returned by `img2avif`.
+/// All errors that can be returned by `img4avif`.
 ///
 /// This enum is `#[non_exhaustive]`: match it with a wildcard arm (`_`) so
 /// that your code continues to compile when new variants are added in future
@@ -9,7 +9,7 @@ use thiserror::Error;
 /// # Example
 ///
 /// ```rust,no_run
-/// # use img2avif::{Config, Converter, Error};
+/// # use img4avif::{Config, Converter, Error};
 /// # let input = vec![];
 /// # let converter = Converter::new(Config::default()).unwrap();
 /// match converter.convert(&input) {
@@ -78,7 +78,7 @@ pub enum Error {
     ///
     /// Please [file a bug report] if you see this variant in production.
     ///
-    /// [file a bug report]: https://github.com/Canter-Equine/img2avif/issues
+    /// [file a bug report]: https://github.com/Canter-Equine/img4avif/issues
     #[error("internal error: {0}")]
     Internal(String),
 }

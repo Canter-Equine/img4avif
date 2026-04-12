@@ -23,14 +23,14 @@
 //! cargo run --example poc
 //!
 //! # With full pipeline logging (requires the dev-logging feature):
-//! RUST_LOG=img2avif=debug cargo run --example poc --features dev-logging
+//! RUST_LOG=img4avif=debug cargo run --example poc --features dev-logging
 //! ```
 
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use img2avif::{Config, Converter, Error, OutputResolution};
+use img4avif::{Config, Converter, Error, OutputResolution};
 
 /// A test image ready for conversion.
 struct TestImage {
@@ -189,7 +189,7 @@ struct ConvResult {
 
 /// Convert `data` and write the AVIF to `poc/output/<stem>_<suffix>.avif`.
 ///
-/// Returns `Ok(ConvResult)` on success or the `img2avif::Error` on failure.
+/// Returns `Ok(ConvResult)` on success or the `img4avif::Error` on failure.
 fn do_convert(
     data: &[u8],
     stem: &str,
@@ -230,7 +230,7 @@ fn do_convert(
 // ---------------------------------------------------------------------------
 
 fn main() {
-    println!("img2avif proof-of-concept");
+    println!("img4avif proof-of-concept");
     println!("=========================");
     println!();
     println!("Generating synthetic test images …");

@@ -1,4 +1,4 @@
-//! Zero-cost conditional logging macros for `img2avif`.
+//! Zero-cost conditional logging macros for `img4avif`.
 //!
 //! When the `dev-logging` Cargo feature is enabled these macros delegate to the
 //! [`log`] crate facade, which means any compatible subscriber (e.g.
@@ -11,11 +11,11 @@
 //!
 //! # Filtering
 //!
-//! All records are emitted under the `img2avif` target.  To see only this
+//! All records are emitted under the `img4avif` target.  To see only this
 //! library's logs with `env_logger`:
 //!
 //! ```sh
-//! RUST_LOG=img2avif=debug cargo run
+//! RUST_LOG=img4avif=debug cargo run
 //! ```
 //!
 //! # Levels used by this library
@@ -33,7 +33,7 @@
 macro_rules! img_debug {
     ($($arg:tt)*) => {
         #[cfg(feature = "dev-logging")]
-        ::log::debug!(target: "img2avif", $($arg)*);
+        ::log::debug!(target: "img4avif", $($arg)*);
     };
 }
 
@@ -41,7 +41,7 @@ macro_rules! img_debug {
 macro_rules! img_info {
     ($($arg:tt)*) => {
         #[cfg(feature = "dev-logging")]
-        ::log::info!(target: "img2avif", $($arg)*);
+        ::log::info!(target: "img4avif", $($arg)*);
     };
 }
 
@@ -49,7 +49,7 @@ macro_rules! img_info {
 macro_rules! img_warn {
     ($($arg:tt)*) => {
         #[cfg(feature = "dev-logging")]
-        ::log::warn!(target: "img2avif", $($arg)*);
+        ::log::warn!(target: "img4avif", $($arg)*);
     };
 }
 
@@ -57,7 +57,7 @@ macro_rules! img_warn {
 macro_rules! img_error {
     ($($arg:tt)*) => {
         #[cfg(feature = "dev-logging")]
-        ::log::error!(target: "img2avif", $($arg)*);
+        ::log::error!(target: "img4avif", $($arg)*);
     };
 }
 

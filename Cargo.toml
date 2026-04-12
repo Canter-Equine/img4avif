@@ -1,5 +1,5 @@
 [package]
-name = "img2avif"
+name = "img4avif"
 version = "0.5.0"
 edition = "2021"
 rust-version = "1.85"
@@ -9,16 +9,22 @@ license = "Apache-2.0"
 readme = "README.md"
 keywords = ["avif", "image", "convert", "heic", "hdr"]
 categories = ["multimedia::images", "encoding"]
-repository = "https://github.com/Canter-Equine/img2avif"
-documentation = "https://docs.rs/img2avif"
+repository = "https://github.com/Canter-Equine/img4avif"
+documentation = "https://docs.rs/img4avif"
 exclude = ["/tests/fixtures", "/examples/fixtures", "/benches", "/fuzz"]
+
+# rlib  – Rust-to-Rust linking (tests, examples, downstream crates).
+# cdylib – produces a `.wasm` binary when targeting wasm32-unknown-unknown,
+#           enabling the Playwright mobile-browser tests in tests/wasm/.
+[lib]
+crate-type = ["rlib", "cdylib"]
 
 [features]
 default = []
 
 # Structured pipeline logging via the `log` crate facade.
 #
-# When enabled, `img2avif` emits log records at every major pipeline stage
+# When enabled, `img4avif` emits log records at every major pipeline stage
 # (input size check, metadata strip, decode, memory guard, encode, output
 # validation).  Install any `log`-compatible subscriber (e.g. `env_logger`,
 # `tracing-log`, `simplelog`) in your application to consume these records.
@@ -31,11 +37,11 @@ default = []
 # Usage:
 #
 #   [dependencies]
-#   img2avif = { version = "0.1", features = ["dev-logging"] }
+#   img4avif = { version = "0.5", features = ["dev-logging"] }
 #
 # Then in your application initialise a subscriber, e.g.:
 #
-#   env_logger::init(); // RUST_LOG=img2avif=debug cargo run
+#   env_logger::init(); // RUST_LOG=img4avif=debug cargo run
 dev-logging = ["dep:log"]
 
 # ⚠️  EXPERIMENTAL: HEIC/HEIF support requires the libheif C library at link time.
@@ -55,7 +61,6 @@ raw-experimental = ["dep:rawloader"]
 thiserror = "2.0"
 # Pinned to preserve the declared Rust 1.85 MSRV until a newer compatible patch exists.
 image = { version = "=0.25.9", default-features = false, features = ["jpeg", "png", "webp"] }
-ravif = { version = "0.13", default-features = false, features = ["threading"] }
 rgb = "0.8"
 img-parts = "0.3"
 
@@ -65,6 +70,15 @@ log = { version = "0.4", optional = true }
 # Experimental optional dependencies (see feature docs above).
 libheif-rs = { version = "1.0", optional = true }
 rawloader = { version = "0.37", optional = true }
+
+# ravif with multi-threading for native targets.
+# wasm32-unknown-unknown uses the no-threading variant below (rayon is not
+# available in that environment).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ravif = { version = "0.13", default-features = false, features = ["threading"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ravif = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

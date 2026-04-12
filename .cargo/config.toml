@@ -1,0 +1,7 @@
+# Cargo workspace configuration
+
+# Cross-compilation: use the aarch64 GCC cross-linker so that
+# `cargo build --target aarch64-unknown-linux-gnu` works on x86_64 CI runners.
+# Install the toolchain with: apt-get install gcc-aarch64-linux-gnu
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"

@@ -1,6 +1,6 @@
 //! End-to-end conversion tests.  All images are generated in-memory.
 
-use img2avif::{Config, Converter, Error, OutputResolution};
+use img4avif::{Config, Converter, Error, OutputResolution};
 
 fn make_png(width: u32, height: u32) -> Vec<u8> {
     let img = image::RgbaImage::new(width, height);
