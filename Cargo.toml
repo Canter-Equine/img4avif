@@ -1,6 +1,6 @@
 [package]
 name = "img2avif"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.85"
 authors = ["Canter-Equine"]
@@ -11,7 +11,7 @@ keywords = ["avif", "image", "convert", "heic", "hdr"]
 categories = ["multimedia::images", "encoding"]
 repository = "https://github.com/Canter-Equine/img2avif"
 documentation = "https://docs.rs/img2avif"
-exclude = ["/tests/fixtures", "/benches", "/fuzz"]
+exclude = ["/tests/fixtures", "/examples/fixtures", "/benches", "/fuzz"]
 
 [features]
 default = []
