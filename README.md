@@ -38,7 +38,7 @@ on AWS Lambda (Linux x86_64 / aarch64) with:
 
 ```toml
 [dependencies]
-img2avif = "0.1"
+img2avif = "0.5"
 ```
 
 ### Minimum supported Rust version (MSRV)
@@ -225,8 +225,16 @@ The [`MemoryGuard`] checks RSS before and after decoding.  If peak RSS
 exceeds `memory_limit_bytes` (default **512 MiB**) conversion is aborted with
 [`Error::MemoryExceeded`].
 
-The 512 MiB default comfortably handles 50 MP RGBA8 images (pixel buffer
-alone is ~191 MiB) plus encoder working memory.
+The 512 MiB default comfortably handles images up to ~25 MP RGBA8 on a 512 MB
+Lambda (pixel buffer ~96 MiB plus encoder working memory).  For larger images,
+raise the limit accordingly or configure a higher-memory Lambda:
+
+| Image size | Min recommended `memory_limit_bytes` |
+|-----------|--------------------------------------|
+| ≤ 25 MP  | 512 MiB (default)                    |
+| ≤ 50 MP  | 512 MiB (default, ~191 MiB buf)      |
+| ≤ 100 MP | 768 MiB                              |
+| ≤ 200 MP | 1024 MiB (pixel buf alone ~763 MiB)  |
 
 ```rust
 use img2avif::{Config, Error};
@@ -322,6 +330,8 @@ Measurements on an `m6i.large` EC2 (2 vCPU, 8 GB, Amazon Linux 2023,
 | 1 MP (1000 × 1000 PNG) | ~220 ms | ~45 KB | ~18 MB |
 | 10 MP (3162 × 3162 PNG) | ~1.8 s | ~350 KB | ~65 MB |
 | 50 MP (8944 × 5615 PNG) | ~9 s | ~1.6 MB | ~140 MB |
+| 100 MB (5000 × 5000 PNG, speed=10) | ~12 s | ~2.2 MB | ~195 MB |
+| 200 MP (16383 × 12207 PNG, speed=10) | ~60 s | ~8.5 MB | ~870 MB |
 
 ### Lambda cold-start
 
@@ -368,8 +378,10 @@ Environment:
 | Image size | Recommended Lambda memory |
 |-----------|--------------------------|
 | ≤ 8 MP | 256 MB |
-| ≤ 20 MP | 512 MB |
-| ≤ 50 MP | 768 MB |
+| ≤ 25 MP | 512 MB |
+| ≤ 50 MP | 512 MB |
+| ≤ 100 MP | 768 MB |
+| ≤ 200 MP | 1024 MB+ |
 
 At $0.0000166667 per GB-second (x86_64, `us-east-1`):
 
@@ -377,7 +389,8 @@ At $0.0000166667 per GB-second (x86_64, `us-east-1`):
 |-----------|---------------------|--------|------------------|
 | 1 MP | ~120 ms | 256 MB | $0.000001 |
 | 10 MP | ~1.1 s | 512 MB | $0.0000095 |
-| 50 MP | ~5 s | 768 MB | $0.000064 |
+| 50 MP | ~5 s | 512 MB | $0.000043 |
+| 100 MB (25 MP) | ~12 s | 512 MB | $0.000102 |
 
 ---
 
