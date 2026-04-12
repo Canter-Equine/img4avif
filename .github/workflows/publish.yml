@@ -1,14 +1,14 @@
 name: Publish to Cargo
 
 on:
-  push:
-    tags:
-      - 'v*' # Triggers when you create a release/tag like v0.5.0
+  release:
+    types: [published]
 
 jobs:
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -16,12 +16,29 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.85 # Matches Cargo.toml MSRV
+          toolchain: 1.85
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install Native Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libheif-dev
 
+      - name: Build (locked)
+        run: cargo build --locked --release
+
+      - name: Run tests (locked)
+        run: cargo test --locked
+
+      - name: Dry run publish
+        run: cargo publish --dry-run --locked
+
       - name: Publish to crates.io
-        run: cargo publish --token ${{ secrets.CRATES_TOKEN }}
+        run: cargo publish --locked --token ${{ secrets.CRATES_TOKEN }}
