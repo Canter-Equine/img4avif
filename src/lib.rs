@@ -294,8 +294,8 @@ impl Converter {
     /// single [`OutputResolution::Original`] output is returned.
     ///
     /// The decode step runs only once regardless of how many resolutions are
-    /// requested, making this more efficient than calling [`Self::convert`]
-    /// multiple times.
+    /// requested. On non-WASM targets, the resize and encode steps are
+    /// parallelized using rayon for improved multi-core performance.
     ///
     /// # Errors
     ///
@@ -328,58 +328,213 @@ impl Converter {
         // the total RSS increase accumulated across all resizes and encodes.
         let guard = MemoryGuard::new(self.config.memory_limit_bytes);
 
-        let mut outputs = Vec::with_capacity(resolutions.len());
-        let mut dedup_cache: HashMap<OutputResolution, Vec<u8>> = HashMap::new();
-        for &resolution in resolutions {
-            if let Some(existing) = dedup_cache.get(&resolution) {
-                img_info!(
-                    "convert_multi: {:?} already encoded — reusing cached output",
-                    resolution
-                );
-                outputs.push(ConversionOutput {
-                    resolution,
-                    data: existing.clone(),
-                });
-                continue;
+        // First, deduplicate resolutions to avoid redundant work
+        let mut unique_resolutions: Vec<OutputResolution> = Vec::new();
+        let mut resolution_indices: Vec<(usize, OutputResolution)> = Vec::new();
+        
+        for (idx, &resolution) in resolutions.iter().enumerate() {
+            if !unique_resolutions.contains(&resolution) {
+                unique_resolutions.push(resolution);
             }
+            resolution_indices.push((idx, resolution));
+        }
 
-            #[allow(clippy::question_mark)] // explicit if-let preserves the log call
-            if let Err(e) = guard.check() {
-                img_error!(
-                    "convert_multi: pre-resize memory guard failed for {:?}: {}",
-                    resolution,
-                    e
-                );
-                return Err(e);
-            }
-            let resized = resize::resize_raw_image(&raw, resolution)?;
-
-            #[allow(clippy::question_mark)]
-            if let Err(e) = guard.check() {
-                img_error!(
-                    "convert_multi: pre-encode memory guard failed for {:?}: {}",
-                    resolution,
-                    e
-                );
-                return Err(e);
-            }
-            let data = match self.encode_raw(&resized) {
-                Ok(d) => d,
-                Err(e) => {
-                    img_error!("convert_multi: encode for {:?} failed — {}", resolution, e);
+        // Parallel encode on native targets, sequential on WASM
+        #[cfg(not(target_arch = "wasm32"))]
+        let encode_results = {
+            use rayon::prelude::*;
+            
+            unique_resolutions
+                .par_iter()
+                .map(|&resolution| {
+                    // Check memory before resize
+                    if let Err(e) = guard.check() {
+                        img_error!(
+                            "convert_multi: pre-resize memory guard failed for {:?}: {}",
+                            resolution,
+                            e
+                        );
+                        return Err(e);
+                    }
+                    
+                    let resized = resize::resize_raw_image(&raw, resolution)?;
+                    
+                    // Check memory before encode
+                    if let Err(e) = guard.check() {
+                        img_error!(
+                            "convert_multi: pre-encode memory guard failed for {:?}: {}",
+                            resolution,
+                            e
+                        );
+                        return Err(e);
+                    }
+                    
+                    let data = self.encode_raw(&resized).map_err(|e| {
+                        img_error!("convert_multi: encode for {:?} failed — {}", resolution, e);
+                        e
+                    })?;
+                    
+                    img_info!("convert_multi: {:?} → {} bytes", resolution, data.len());
+                    Ok((resolution, data))
+                })
+                .collect::<Result<Vec<_>, Error>>()?
+        };
+        
+        #[cfg(target_arch = "wasm32")]
+        let encode_results = {
+            let mut results = Vec::new();
+            for &resolution in &unique_resolutions {
+                if let Err(e) = guard.check() {
+                    img_error!(
+                        "convert_multi: pre-resize memory guard failed for {:?}: {}",
+                        resolution,
+                        e
+                    );
                     return Err(e);
                 }
-            };
-            dedup_cache.insert(resolution, data.clone());
-            img_info!("convert_multi: {:?} → {} bytes", resolution, data.len(),);
-            outputs.push(ConversionOutput { resolution, data });
-        }
+                let resized = resize::resize_raw_image(&raw, resolution)?;
+
+                if let Err(e) = guard.check() {
+                    img_error!(
+                        "convert_multi: pre-encode memory guard failed for {:?}: {}",
+                        resolution,
+                        e
+                    );
+                    return Err(e);
+                }
+                let data = match self.encode_raw(&resized) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        img_error!("convert_multi: encode for {:?} failed — {}", resolution, e);
+                        return Err(e);
+                    }
+                };
+                img_info!("convert_multi: {:?} → {} bytes", resolution, data.len());
+                results.push((resolution, data));
+            }
+            results
+        };
+
+        // Build dedup cache from results
+        let dedup_cache: HashMap<OutputResolution, Vec<u8>> = encode_results.into_iter().collect();
+
+        // Reconstruct output in original order with deduplication
+        let outputs: Vec<ConversionOutput> = resolution_indices
+            .into_iter()
+            .map(|(_, resolution)| {
+                let data = dedup_cache
+                    .get(&resolution)
+                    .expect("resolution should be in cache")
+                    .clone();
+                ConversionOutput { resolution, data }
+            })
+            .collect();
 
         img_info!(
             "convert_multi: complete — {} output(s) produced",
             outputs.len()
         );
         Ok(outputs)
+    }
+
+    /// Decode and encode multiple independent images in parallel.
+    ///
+    /// Each input is processed independently on a separate thread (on non-WASM
+    /// targets), providing coarse-grained parallelism for batch workloads.
+    ///
+    /// Returns a [`Vec<Result<Vec<u8>, Error>>`] with one result per input,
+    /// preserving the input order. Successful conversions return `Ok(avif_bytes)`;
+    /// failures return the corresponding [`Error`].
+    ///
+    /// Unlike [`Self::convert_multi`], which decodes once and produces multiple
+    /// resolutions, `convert_batch` is designed for processing multiple distinct
+    /// images simultaneously.
+    ///
+    /// On WASM targets, images are processed sequentially since rayon is not available.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use img4avif::{Config, Converter};
+    ///
+    /// # fn main() -> Result<(), img4avif::Error> {
+    /// let images = vec![
+    ///     std::fs::read("photo1.jpg")?,
+    ///     std::fs::read("photo2.png")?,
+    ///     std::fs::read("photo3.webp")?,
+    /// ];
+    ///
+    /// let refs: Vec<&[u8]> = images.iter().map(|v| v.as_slice()).collect();
+    /// let converter = Converter::new(Config::default())?;
+    /// let results = converter.convert_batch(&refs);
+    ///
+    /// for (i, result) in results.iter().enumerate() {
+    ///     match result {
+    ///         Ok(avif) => println!("Image {}: {} bytes", i, avif.len()),
+    ///         Err(e) => eprintln!("Image {}: conversion failed: {}", i, e),
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Individual conversion errors are returned in the result vector rather than
+    /// failing the entire batch. Check each element for success/failure.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn convert_batch(&self, inputs: &[&[u8]]) -> Vec<Result<Vec<u8>, Error>> {
+        use logging::img_info;
+        use rayon::prelude::*;
+
+        img_info!(
+            "convert_batch: starting — {} image(s)",
+            inputs.len()
+        );
+
+        let results: Vec<Result<Vec<u8>, Error>> = inputs
+            .par_iter()
+            .map(|input| self.convert(input))
+            .collect();
+
+        let success_count = results.iter().filter(|r| r.is_ok()).count();
+        img_info!(
+            "convert_batch: complete — {}/{} succeeded",
+            success_count,
+            inputs.len()
+        );
+
+        results
+    }
+
+    /// Decode and encode multiple independent images sequentially (WASM-only).
+    ///
+    /// This is the WASM-compatible version of [`Self::convert_batch`] that processes
+    /// images sequentially since rayon is not available on WASM targets.
+    ///
+    /// See [`Self::convert_batch`] for full documentation.
+    #[cfg(target_arch = "wasm32")]
+    pub fn convert_batch(&self, inputs: &[&[u8]]) -> Vec<Result<Vec<u8>, Error>> {
+        use logging::img_info;
+
+        img_info!(
+            "convert_batch: starting — {} image(s) (sequential mode)",
+            inputs.len()
+        );
+
+        let results: Vec<Result<Vec<u8>, Error>> = inputs
+            .iter()
+            .map(|input| self.convert(input))
+            .collect();
+
+        let success_count = results.iter().filter(|r| r.is_ok()).count();
+        img_info!(
+            "convert_batch: complete — {}/{} succeeded",
+            success_count,
+            inputs.len()
+        );
+
+        results
     }
 
     /// Validate input size, strip metadata, run memory guards, and decode to a
@@ -595,6 +750,49 @@ mod tests {
         let cfg = Config::default().quality(5);
         let converter = Converter::new(cfg).unwrap();
         assert_eq!(converter.config().quality, 5);
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn convert_batch_processes_multiple_images() {
+        let png1 = make_minimal_png(8, 8);
+        let png2 = make_minimal_png(12, 12);
+        let png3 = make_minimal_png(16, 16);
+        
+        let inputs = vec![png1.as_slice(), png2.as_slice(), png3.as_slice()];
+        let converter = Converter::new(Config::default()).unwrap();
+        let results = converter.convert_batch(&inputs);
+        
+        assert_eq!(results.len(), 3);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_ok());
+        assert!(results[2].is_ok());
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn convert_batch_handles_mixed_success_and_failure() {
+        let png = make_minimal_png(8, 8);
+        let garbage = b"not an image";
+        
+        let inputs = vec![png.as_slice(), garbage.as_slice(), png.as_slice()];
+        let converter = Converter::new(Config::default()).unwrap();
+        let results = converter.convert_batch(&inputs);
+        
+        assert_eq!(results.len(), 3);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_err());
+        assert!(results[2].is_ok());
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn convert_batch_empty_input() {
+        let inputs: Vec<&[u8]> = vec![];
+        let converter = Converter::new(Config::default()).unwrap();
+        let results = converter.convert_batch(&inputs);
+        
+        assert_eq!(results.len(), 0);
     }
 
     // --- output resolution tests -----------------------------------------
