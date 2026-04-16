@@ -301,6 +301,12 @@ impl Converter {
     ///
     /// Returns the first error encountered (during decode or any encode step).
     /// Errors are the same variants as [`Self::convert`].
+    ///
+    /// # Panics
+    ///
+    /// Should not panic under normal operation. The deduplication logic uses
+    /// `expect()` internally but is guaranteed to succeed by construction.
+    #[allow(clippy::too_many_lines)]
     pub fn convert_multi(&self, input: &[u8]) -> Result<Vec<ConversionOutput>, Error> {
         use logging::{img_error, img_info};
 
@@ -347,7 +353,7 @@ impl Converter {
             unique_resolutions
                 .par_iter()
                 .map(|&resolution| {
-                    // Check memory before resize
+                    #[allow(clippy::question_mark)] // explicit if-let preserves the log call
                     if let Err(e) = guard.check() {
                         img_error!(
                             "convert_multi: pre-resize memory guard failed for {:?}: {}",
@@ -360,6 +366,7 @@ impl Converter {
                     let resized = resize::resize_raw_image(&raw, resolution)?;
                     
                     // Check memory before encode
+                    #[allow(clippy::question_mark)]
                     if let Err(e) = guard.check() {
                         img_error!(
                             "convert_multi: pre-encode memory guard failed for {:?}: {}",
@@ -369,10 +376,13 @@ impl Converter {
                         return Err(e);
                     }
                     
-                    let data = self.encode_raw(&resized).map_err(|e| {
-                        img_error!("convert_multi: encode for {:?} failed — {}", resolution, e);
-                        e
-                    })?;
+                    let data = match self.encode_raw(&resized) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            img_error!("convert_multi: encode for {:?} failed — {}", resolution, e);
+                            return Err(e);
+                        }
+                    };
                     
                     img_info!("convert_multi: {:?} → {} bytes", resolution, data.len());
                     Ok((resolution, data))
@@ -483,6 +493,7 @@ impl Converter {
     /// Individual conversion errors are returned in the result vector rather than
     /// failing the entire batch. Check each element for success/failure.
     #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
     pub fn convert_batch(&self, inputs: &[&[u8]]) -> Vec<Result<Vec<u8>, Error>> {
         use logging::img_info;
         use rayon::prelude::*;
@@ -497,12 +508,15 @@ impl Converter {
             .map(|input| self.convert(input))
             .collect();
 
-        let success_count = results.iter().filter(|r| r.is_ok()).count();
-        img_info!(
-            "convert_batch: complete — {}/{} succeeded",
-            success_count,
-            inputs.len()
-        );
+        #[cfg(feature = "dev-logging")]
+        {
+            let success_count = results.iter().filter(|r| r.is_ok()).count();
+            img_info!(
+                "convert_batch: complete — {}/{} succeeded",
+                success_count,
+                inputs.len()
+            );
+        }
 
         results
     }
@@ -514,6 +528,7 @@ impl Converter {
     ///
     /// See [`Self::convert_batch`] for full documentation.
     #[cfg(target_arch = "wasm32")]
+    #[must_use]
     pub fn convert_batch(&self, inputs: &[&[u8]]) -> Vec<Result<Vec<u8>, Error>> {
         use logging::img_info;
 
@@ -527,12 +542,15 @@ impl Converter {
             .map(|input| self.convert(input))
             .collect();
 
-        let success_count = results.iter().filter(|r| r.is_ok()).count();
-        img_info!(
-            "convert_batch: complete — {}/{} succeeded",
-            success_count,
-            inputs.len()
-        );
+        #[cfg(feature = "dev-logging")]
+        {
+            let success_count = results.iter().filter(|r| r.is_ok()).count();
+            img_info!(
+                "convert_batch: complete — {}/{} succeeded",
+                success_count,
+                inputs.len()
+            );
+        }
 
         results
     }

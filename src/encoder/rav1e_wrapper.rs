@@ -93,11 +93,11 @@ pub fn encode_avif(
     );
 
     // Scale quality from 1-10 range to 1-100 range for ravif
-    let ravif_quality = (quality.clamp(1, 10) as u32 * 10).min(100) as u8;
+    let ravif_quality = (u32::from(quality.clamp(1, 10)) * 10).min(100) as u8;
     
     // Only use alpha_quality if the image has transparency; otherwise use quality
     let ravif_alpha_quality = if has_transparency {
-        (alpha_quality.clamp(1, 10) as u32 * 10).min(100) as u8
+        (u32::from(alpha_quality.clamp(1, 10)) * 10).min(100) as u8
     } else {
         img_debug!("encode_avif: no transparency detected, treating alpha_quality as no-op");
         ravif_quality
