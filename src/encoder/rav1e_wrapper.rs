@@ -1,6 +1,6 @@
 //! AVIF encoding via the `ravif` / `rav1e` pure-Rust AV1 encoder.
 //!
-//! This module wraps [`ravif::Encoder`] and converts between our internal
+//! This module wraps [`ravif::Encoder`] and converts between internal
 //! [`RawImage`] representation and the types expected by `ravif`.
 //!
 //! ## Bit-depth selection
@@ -15,34 +15,14 @@
 //! the BT.601 matrix.  This matches the colour model used by the 8-bit path
 //! so there is no colour-space discontinuity when mixing input depths.
 //!
-//! ## Output validation
-//!
-//! After encoding, the raw bytes are validated:
-//!
-//! 1. The output must be non-empty.
-//! 2. The output must be at least 20 bytes (the minimum size of a valid ISOBMFF
-//!    `ftyp` box).
-//! 3. Bytes 4–7 must equal `ftyp` — the ISOBMFF box-type marker present in
-//!    every well-formed AVIF file.
-//! 4. Bytes 8–11 must equal `avif` or `avis` — the AVIF major brand.
-//! 5. Bytes 0–3 must encode a box size ≥ 20 and ≤ total output length.
-//!
-//! If any check fails, [`Error::Encode`] is returned with a descriptive
+//! If any check fails output validation, [`Error::Encode`] is returned with a descriptive
 //! message instead of silently handing back corrupt bytes to the caller.
 
 use crate::decoder::{Pixels, RawImage};
 use crate::logging::{img_debug, img_error, img_info, img_warn};
 use crate::Error;
 
-/// Minimum byte length of a structurally valid AVIF file.
-///
-/// An AVIF file is an ISOBMFF container.  The outermost box is always `ftyp`
-/// whose minimum layout is:
-/// ```text
-/// [ 4 bytes size ][ 4 bytes "ftyp" ][ 4 bytes major brand ]
-/// [ 4 bytes minor version ][ 4 bytes compatible brand × 1 ]
-/// ```
-/// That totals 20 bytes.
+/// Minimum byte length of a structurally valid AVIF file is 20 bytes.
 const MIN_AVIF_BYTES: usize = 20;
 
 /// Encode a [`RawImage`] as AVIF.
@@ -53,10 +33,10 @@ const MIN_AVIF_BYTES: usize = 20;
 ///   `ravif::Encoder::encode_raw_planes_10_bit` so the full 10-bit precision
 ///   is preserved rather than being silently discarded.
 ///
-/// `quality` must be in **1 – 100** (higher = better).
+/// `quality` must be in **1 – 10** (higher = better), it will be scaled to 1-100 for ravif syntax.
 /// `speed` must be in **1 – 10** (higher = faster).
-/// `alpha_quality` must be in **1 – 100**; pass the same value as `quality`
-/// for uniform quality, or a higher value (e.g. 95) to keep the alpha channel
+/// `alpha_quality` must be in **1 – 10**; pass the same value as `quality`
+/// for uniform quality, or a higher value (e.g. 10) to keep the alpha channel
 /// visually lossless.
 ///
 /// # Output validation
@@ -75,8 +55,11 @@ pub fn encode_avif(
     speed: u8,
     alpha_quality: u8,
 ) -> Result<Vec<u8>, Error> {
+    // Check if the image has any transparency
+    let has_transparency = image.has_transparency();
+    
     img_debug!(
-        "encode_avif: {}×{} px, quality={}, alpha_quality={}, speed={}, depth={}",
+        "encode_avif: {}×{} px, quality={}, alpha_quality={}, speed={}, depth={}, transparency={}",
         image.width,
         image.height,
         quality,
@@ -85,25 +68,37 @@ pub fn encode_avif(
         match &image.pixels {
             Pixels::Rgba8(_) => "8-bit",
             Pixels::Rgba16(_) => "16-bit",
-        }
+        },
+        has_transparency
     );
+
+    // Scale quality from 1-10 range to 1-100 range for ravif
+    let ravif_quality = (u32::from(quality.clamp(1, 10)) * 10).min(100) as u8;
+    
+    // Only use alpha_quality if the image has transparency; otherwise use quality
+    let ravif_alpha_quality = if has_transparency {
+        (u32::from(alpha_quality.clamp(1, 10)) * 10).min(100) as u8
+    } else {
+        img_debug!("encode_avif: no transparency detected, treating alpha_quality as no-op");
+        ravif_quality
+    };
 
     let avif = match &image.pixels {
         Pixels::Rgba8(bytes) => encode_8bit(
             image.width,
             image.height,
             bytes,
-            quality,
+            ravif_quality,
             speed,
-            alpha_quality,
+            ravif_alpha_quality,
         ),
         Pixels::Rgba16(samples) => encode_16bit(
             image.width,
             image.height,
             samples,
-            quality,
+            ravif_quality,
             speed,
-            alpha_quality,
+            ravif_alpha_quality,
         ),
     }?;
 
@@ -122,14 +117,6 @@ pub fn encode_avif(
 }
 
 /// Validate that `bytes` looks like a structurally sound AVIF file.
-///
-/// Checks:
-/// 1. Non-empty.
-/// 2. At least [`MIN_AVIF_BYTES`] long.
-/// 3. Bytes 4–7 are `b"ftyp"` — the ISOBMFF file-type box marker.
-/// 4. Bytes 8–11 are `b"avif"` or `b"avis"` — the AVIF major brand.
-/// 5. Bytes 0–3 encode a box size ≥ 20 and ≤ the total output length.
-///
 /// These checks are lightweight (no full ISOBMFF parse) and catch the most
 /// common failure modes: empty output, truncated output, and the encoder
 /// accidentally emitting raw bitstream data without wrapping it in a container.
@@ -334,12 +321,6 @@ fn encode_16bit(
 /// function, extended to 16-bit input so the full precision of 16-bit PNG
 /// files is preserved in the 10-bit AVIF stream.
 ///
-/// # Precision
-///
-/// The final `.clamp(0.0, 1023.0)` call mathematically guarantees that every
-/// output value is in `[0.0, 1023.0]` before the `as u32 as u16` cast.
-/// Clippy's `cast_sign_loss` lint fires because it cannot statically prove
-/// non-negativity from `clamp`, hence the `#[allow]` below.
 #[inline]
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 // Safety: clamp(0.0, MAX10) guarantees the value is in [0, 1023]; the

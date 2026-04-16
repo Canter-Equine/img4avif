@@ -38,7 +38,7 @@ on AWS Lambda (Linux x86_64 / aarch64).
 
 ```toml
 [dependencies]
-img4avif = "0.5"
+img4avif = "0.6"
 ```
 
 ### Minimum supported Rust version (MSRV)
@@ -58,9 +58,9 @@ fn main() -> Result<(), img4avif::Error> {
 
     // Build a config — all fields have sensible defaults.
     let config = Config::default()
-        .quality(85)   // 1–100, default 80
-        .speed(6)      // 1–10,  default 6
-        .strip_exif(true); // default is already true
+        .quality(8)    // 1–10, default 8
+        .speed(6)      // 1–10, default 6
+        .strip_exif(true); // default is true
 
     let converter = Converter::new(config)?;
     let avif_bytes = converter.convert(&jpeg_bytes)?;
@@ -76,7 +76,7 @@ fn main() -> Result<(), img4avif::Error> {
 use img4avif::{Config, Converter};
 
 let converter = Converter::new(Config::lambda_cost_optimized())?;
-// quality=75, speed=10, strip_exif=true, max_input_bytes=50 MiB
+// quality=8, speed=10, strip_exif=true, max_input_bytes=50 MiB
 let avif = converter.convert(&input_bytes)?;
 ```
 
@@ -126,15 +126,15 @@ The `Config` builder lets you balance **image quality**, **file size**, and
 
 ### Recommended starting points
 
-- **Thumbnails / Lambda / high-throughput pipelines:** use `quality=70`
+- **Thumbnails / Lambda / high-throughput pipelines:** use `quality=7`
   and `speed=10`
-- **Archival photos / maximum fidelity:** use `quality=95` and a lower
+- **Archival photos / maximum fidelity:** use `quality=10` and a lower
   speed such as `6`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `quality` | `u8` | `80` | Colour encoding quality (1 – 100). Higher value preserves the image quality, lower value produces smaller file size. |
-| `alpha_quality` | `u8` | `80` | Alpha-channel quality (1 – 100) preserves visual transparency. Higher value keep the original transparency level, lower value produces smaller file size. |
+| `quality` | `u8` | `8` | Colour encoding quality (1 – 10). Higher value preserves the image quality, lower value produces smaller file size. |
+| `alpha_quality` | `u8` | `8` | Alpha-channel quality (1 – 10) preserves visual transparency. Higher value keeps the original transparency level, lower value produces smaller file size. |
 | `speed` | `u8` | `6` | Encoder speed (1 – 10). Higher value encodes faster, lower value produces smaller file size. |
 | `strip_exif` | `bool` | `true` | Strip all EXIF/IPTC/XMP metadata (recommended). |
 | `max_input_bytes` | `u64` | `104_857_600` (100 MiB) | Maximum raw input file size. |
@@ -142,36 +142,23 @@ The `Config` builder lets you balance **image quality**, **file size**, and
 | `memory_limit_bytes` | `u64` | `536_870_912` (512 MiB) | Peak memory budget for conversion. |
 | `output_resolutions` | `Vec<OutputResolution>` | `[Original]` | Which resolution(s) to produce. See [Output resolution control](#output-resolution-control). |
 
-All setter methods return `Self` for chaining:
-
-```rust
-let config = Config::default()
-    .quality(90)
-    .alpha_quality(95)  // keep alpha visually lossless
-    .speed(8)
-    .max_pixels(10_000 * 10_000)
-    .memory_limit_bytes(512 * 1024 * 1024);
-```
-
 ---
 
 ## Output Resolution Control
 
 By default `img4avif` encodes images at their original resolution.  Use
 `Config::output_resolutions` with any combination of `OutputResolution`
-variants to resize before encoding.
+variants to resize before encoding. This only downscales, never upscales.
+Aspect ratio is preserved without cropping, - **Lanczos-3 filter** is used 
+for high-quality downsampling.
+
+Example below:
 
 | Variant | Target width | Behaviour |
 |---------|-------------|-----------|
 | `Original` | — | No resize; encodes at source dimensions |
 | `Width2560` | 2560 px | Shrinks to 2560 px wide if source is wider |
 | `Width1080` | 1080 px | Shrinks to 1080 px wide if source is wider |
-
-**Rules:**
-- **Only downscales.** Images already at or below the target width are
-  passed through unchanged — `img4avif` never upscales.
-- **Aspect ratio preserved.** Height is computed proportionally; no cropping.
-- **Lanczos-3 filter** is used for high-quality downsampling.
 
 ### Single output at a specific width
 
@@ -202,20 +189,9 @@ for out in &outputs {
 }
 ```
 
-> **Lambda tip:** `convert_multi` with all three resolutions costs only
+> **Multiple Output Tip:** `convert_multi` with all three resolutions costs only
 > slightly more than a single `convert` call because the decode step runs
 > only once.  The three encode passes are independent and parallelisable.
-
----
-
-## EXIF / metadata handling
-
-By default, img4avif removes all metadata.
-
-If you want to keep metadata, set `strip_exif(false)`:
-`:
-
-A warning will be printed to `stderr` at conversion time when `strip_exif = false`.
 
 ---
 

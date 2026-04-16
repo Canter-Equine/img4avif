@@ -1,10 +1,26 @@
 # Changelog
 
-All notable changes to `img4avif` are documented here.
+Notable changes to `img4avif` are documented here, trying to keep up with I but forgot to CHANGELOG the updates from 0.2-0.4, sorry.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-I forgot to CHANGELOG the updates from 0.2-0.4, sorry.
+
+---
+
+## [0.6.0] — 2026-04-16
+
+**BREAKING CHANGES**
+
+- **Quality scale normalization**: `Config::quality` and `Config::alpha_quality` now use a **1–10** scale (matching `Config::speed`) instead of the previous 1–100 scale, and encoder behavior is preserved.
+  - **Default values**: `quality` and `alpha_quality` defaults to `8`
+  - **Lambda preset**: `lambda_cost_optimized()` defailts to `8`
+  - **Migration**: Divide your existing quality values by 10 (e.g., `quality(80)` → `quality(8)`)
+
+### Added
+
+- **Parallel processing with rayon**: `convert_multi` now encodes multiple resolutions in parallel on native targets for speed improvement on compatible chipsets.
+- **New `convert_batch` method**: Process multiple independent images in parallel. Each image is decoded and encoded on a separate thread, providing coarse-grained parallelism for batch workloads.
+- **Alpha quality optimization**: The encoder now detects transparency in images. When an image is fully opaque (no alpha channel variation), `alpha_quality` is automatically treated as a no-op to save processing resources.
 
 ---
 
@@ -20,14 +36,7 @@ I forgot to CHANGELOG the updates from 0.2-0.4, sorry.
 
 ### Added
 
-- **200 MP stress test** (`two_hundred_megapixel_converts_successfully`): converts
-  a ~200 MP synthetic PNG with a 1 GiB memory limit and verifies end-to-end success.
-- **200 MP limit guard test** (`two_hundred_megapixel_exceeds_default_512mib_limit`):
-  confirms that `Error::MemoryExceeded` is raised on Linux when a 200 MP image
-  is submitted with the default 512 MiB budget.
-- **100 MB image stress test** (`hundred_mb_image_converts_successfully`): converts a
-  5000 × 5000 synthetic PNG (~100 MB pixel data) and verifies peak RSS stays under
-  512 MiB — proving 512 MB Lambda viability for this workload class.
+- **Stress Test**: We stress test the crate on 200 MP image, on a 100 MB image, and a handful of file formats.
 - **CI artifact upload**: `examples/out/` AVIF outputs from the CI pipeline tests are
   uploaded and manually reviewed for quality assurance.
 
