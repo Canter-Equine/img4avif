@@ -79,8 +79,11 @@ pub fn encode_avif(
     speed: u8,
     alpha_quality: u8,
 ) -> Result<Vec<u8>, Error> {
+    // Check if the image has any transparency
+    let has_transparency = image.has_transparency();
+    
     img_debug!(
-        "encode_avif: {}×{} px, quality={}, alpha_quality={}, speed={}, depth={}",
+        "encode_avif: {}×{} px, quality={}, alpha_quality={}, speed={}, depth={}, transparency={}",
         image.width,
         image.height,
         quality,
@@ -89,12 +92,20 @@ pub fn encode_avif(
         match &image.pixels {
             Pixels::Rgba8(_) => "8-bit",
             Pixels::Rgba16(_) => "16-bit",
-        }
+        },
+        has_transparency
     );
 
     // Scale quality from 1-10 range to 1-100 range for ravif
     let ravif_quality = (quality.clamp(1, 10) as u32 * 10).min(100) as u8;
-    let ravif_alpha_quality = (alpha_quality.clamp(1, 10) as u32 * 10).min(100) as u8;
+    
+    // Only use alpha_quality if the image has transparency; otherwise use quality
+    let ravif_alpha_quality = if has_transparency {
+        (alpha_quality.clamp(1, 10) as u32 * 10).min(100) as u8
+    } else {
+        img_debug!("encode_avif: no transparency detected, treating alpha_quality as no-op");
+        ravif_quality
+    };
 
     let avif = match &image.pixels {
         Pixels::Rgba8(bytes) => encode_8bit(
