@@ -337,7 +337,7 @@ impl Converter {
         // First, deduplicate resolutions to avoid redundant work
         let mut unique_resolutions: Vec<OutputResolution> = Vec::new();
         let mut resolution_indices: Vec<(usize, OutputResolution)> = Vec::new();
-        
+
         for (idx, &resolution) in resolutions.iter().enumerate() {
             if !unique_resolutions.contains(&resolution) {
                 unique_resolutions.push(resolution);
@@ -349,7 +349,7 @@ impl Converter {
         #[cfg(not(target_arch = "wasm32"))]
         let encode_results = {
             use rayon::prelude::*;
-            
+
             unique_resolutions
                 .par_iter()
                 .map(|&resolution| {
@@ -362,9 +362,9 @@ impl Converter {
                         );
                         return Err(e);
                     }
-                    
+
                     let resized = resize::resize_raw_image(&raw, resolution)?;
-                    
+
                     // Check memory before encode
                     #[allow(clippy::question_mark)]
                     if let Err(e) = guard.check() {
@@ -375,7 +375,7 @@ impl Converter {
                         );
                         return Err(e);
                     }
-                    
+
                     let data = match self.encode_raw(&resized) {
                         Ok(d) => d,
                         Err(e) => {
@@ -383,13 +383,13 @@ impl Converter {
                             return Err(e);
                         }
                     };
-                    
+
                     img_info!("convert_multi: {:?} → {} bytes", resolution, data.len());
                     Ok((resolution, data))
                 })
                 .collect::<Result<Vec<_>, Error>>()?
         };
-        
+
         #[cfg(target_arch = "wasm32")]
         let encode_results = {
             let mut results = Vec::new();
@@ -498,15 +498,10 @@ impl Converter {
         use logging::img_info;
         use rayon::prelude::*;
 
-        img_info!(
-            "convert_batch: starting — {} image(s)",
-            inputs.len()
-        );
+        img_info!("convert_batch: starting — {} image(s)", inputs.len());
 
-        let results: Vec<Result<Vec<u8>, Error>> = inputs
-            .par_iter()
-            .map(|input| self.convert(input))
-            .collect();
+        let results: Vec<Result<Vec<u8>, Error>> =
+            inputs.par_iter().map(|input| self.convert(input)).collect();
 
         #[cfg(feature = "dev-logging")]
         {
@@ -537,10 +532,8 @@ impl Converter {
             inputs.len()
         );
 
-        let results: Vec<Result<Vec<u8>, Error>> = inputs
-            .iter()
-            .map(|input| self.convert(input))
-            .collect();
+        let results: Vec<Result<Vec<u8>, Error>> =
+            inputs.iter().map(|input| self.convert(input)).collect();
 
         #[cfg(feature = "dev-logging")]
         {
@@ -776,11 +769,11 @@ mod tests {
         let png1 = make_minimal_png(8, 8);
         let png2 = make_minimal_png(12, 12);
         let png3 = make_minimal_png(16, 16);
-        
+
         let inputs = vec![png1.as_slice(), png2.as_slice(), png3.as_slice()];
         let converter = Converter::new(Config::default()).unwrap();
         let results = converter.convert_batch(&inputs);
-        
+
         assert_eq!(results.len(), 3);
         assert!(results[0].is_ok());
         assert!(results[1].is_ok());
@@ -792,11 +785,11 @@ mod tests {
     fn convert_batch_handles_mixed_success_and_failure() {
         let png = make_minimal_png(8, 8);
         let garbage = b"not an image";
-        
+
         let inputs = vec![png.as_slice(), garbage.as_slice(), png.as_slice()];
         let converter = Converter::new(Config::default()).unwrap();
         let results = converter.convert_batch(&inputs);
-        
+
         assert_eq!(results.len(), 3);
         assert!(results[0].is_ok());
         assert!(results[1].is_err());
@@ -809,7 +802,7 @@ mod tests {
         let inputs: Vec<&[u8]> = vec![];
         let converter = Converter::new(Config::default()).unwrap();
         let results = converter.convert_batch(&inputs);
-        
+
         assert_eq!(results.len(), 0);
     }
 
