@@ -53,10 +53,14 @@ const MIN_AVIF_BYTES: usize = 20;
 ///   `ravif::Encoder::encode_raw_planes_10_bit` so the full 10-bit precision
 ///   is preserved rather than being silently discarded.
 ///
-/// `quality` must be in **1 – 100** (higher = better).
+/// `quality` must be in **1 – 10** (higher = better). Scaled to 1-100 for ravif.
 /// `speed` must be in **1 – 10** (higher = faster).
-/// `alpha_quality` must be in **1 – 100**; pass the same value as `quality`
-/// for uniform quality, or a higher value (e.g. 95) to keep the alpha channel
+/// `alpha_quality` must be in **1 – 10**; pass the same value as `quality`
+/// for uniform quality, or a higher value (e.g. 10) to keep the alpha channel
+/// visually lossless.
+/// `speed` must be in **1 – 10** (higher = faster).
+/// `alpha_quality` must be in **1 – 10**; pass the same value as `quality`
+/// for uniform quality, or a higher value (e.g. 10) to keep the alpha channel
 /// visually lossless.
 ///
 /// # Output validation
@@ -88,22 +92,26 @@ pub fn encode_avif(
         }
     );
 
+    // Scale quality from 1-10 range to 1-100 range for ravif
+    let ravif_quality = (quality.clamp(1, 10) as u32 * 10).min(100) as u8;
+    let ravif_alpha_quality = (alpha_quality.clamp(1, 10) as u32 * 10).min(100) as u8;
+
     let avif = match &image.pixels {
         Pixels::Rgba8(bytes) => encode_8bit(
             image.width,
             image.height,
             bytes,
-            quality,
+            ravif_quality,
             speed,
-            alpha_quality,
+            ravif_alpha_quality,
         ),
         Pixels::Rgba16(samples) => encode_16bit(
             image.width,
             image.height,
             samples,
-            quality,
+            ravif_quality,
             speed,
-            alpha_quality,
+            ravif_alpha_quality,
         ),
     }?;
 

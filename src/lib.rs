@@ -14,7 +14,7 @@
 //! let jpeg_bytes = std::fs::read("photo.jpg")?;
 //!
 //! let config = Config::default()
-//!     .quality(85)
+//!     .quality(9)
 //!     .speed(6)
 //!     .strip_exif(true); // default
 //!
@@ -582,8 +582,8 @@ mod tests {
     #[test]
     fn config_builder_clamps_values() {
         let cfg = Config::default().quality(200).alpha_quality(200).speed(99);
-        assert_eq!(cfg.quality, 100);
-        assert_eq!(cfg.alpha_quality, 100);
+        assert_eq!(cfg.quality, 10);
+        assert_eq!(cfg.alpha_quality, 10);
         assert_eq!(cfg.speed, 10);
         let cfg_low = Config::default().quality(0).alpha_quality(0);
         assert_eq!(cfg_low.quality, 1);
@@ -592,9 +592,9 @@ mod tests {
 
     #[test]
     fn config_accessor() {
-        let cfg = Config::default().quality(42);
+        let cfg = Config::default().quality(5);
         let converter = Converter::new(cfg).unwrap();
-        assert_eq!(converter.config().quality, 42);
+        assert_eq!(converter.config().quality, 5);
     }
 
     // --- output resolution tests -----------------------------------------

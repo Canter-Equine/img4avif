@@ -126,15 +126,15 @@ The `Config` builder lets you balance **image quality**, **file size**, and
 
 ### Recommended starting points
 
-- **Thumbnails / Lambda / high-throughput pipelines:** use `quality=70`
+- **Thumbnails / Lambda / high-throughput pipelines:** use `quality=7`
   and `speed=10`
-- **Archival photos / maximum fidelity:** use `quality=95` and a lower
+- **Archival photos / maximum fidelity:** use `quality=10` and a lower
   speed such as `6`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `quality` | `u8` | `80` | Colour encoding quality (1 – 100). Higher value preserves the image quality, lower value produces smaller file size. |
-| `alpha_quality` | `u8` | `80` | Alpha-channel quality (1 – 100) preserves visual transparency. Higher value keep the original transparency level, lower value produces smaller file size. |
+| `quality` | `u8` | `8` | Colour encoding quality (1 – 10). Higher value preserves the image quality, lower value produces smaller file size. |
+| `alpha_quality` | `u8` | `8` | Alpha-channel quality (1 – 10) preserves visual transparency. Higher value keeps the original transparency level, lower value produces smaller file size. |
 | `speed` | `u8` | `6` | Encoder speed (1 – 10). Higher value encodes faster, lower value produces smaller file size. |
 | `strip_exif` | `bool` | `true` | Strip all EXIF/IPTC/XMP metadata (recommended). |
 | `max_input_bytes` | `u64` | `104_857_600` (100 MiB) | Maximum raw input file size. |
@@ -146,8 +146,8 @@ All setter methods return `Self` for chaining:
 
 ```rust
 let config = Config::default()
-    .quality(90)
-    .alpha_quality(95)  // keep alpha visually lossless
+    .quality(9)
+    .alpha_quality(10)  // keep alpha visually lossless
     .speed(8)
     .max_pixels(10_000 * 10_000)
     .memory_limit_bytes(512 * 1024 * 1024);
