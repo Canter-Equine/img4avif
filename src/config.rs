@@ -8,7 +8,7 @@ use crate::resize::OutputResolution;
 /// use img4avif::{Config, OutputResolution};
 ///
 /// let config = Config::default()
-///     .quality(85)
+///     .quality(9)
 ///     .speed(6)
 ///     .strip_exif(true)
 ///     .output_resolutions(vec![OutputResolution::Original, OutputResolution::Width1080]);
@@ -18,8 +18,8 @@ use crate::resize::OutputResolution;
 ///
 /// | Field | Default |
 /// |-------|---------|
-/// | `quality` | `80` |
-/// | `alpha_quality` | `80` |
+/// | `quality` | `8` |
+/// | `alpha_quality` | `8` |
 /// | `speed` | `6` |
 /// | `strip_exif` | `true` |
 /// | `max_input_bytes` | 100 MiB |
@@ -28,23 +28,23 @@ use crate::resize::OutputResolution;
 /// | `output_resolutions` | `[Original]` |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    /// Encoding quality **1 – 100** (higher = better quality, larger file).
-    /// Clamped to the valid range by the builder setter.  Default: `80`.
+    /// Encoding quality **1 – 10** (higher = better quality, larger file).
+    /// Clamped to the valid range by the builder setter.  Default: `8`.
     ///
     /// **Note:** if this field is set directly (bypassing the builder), values
-    /// outside 1–100 are silently clamped to the valid range at encode time.
+    /// outside 1–10 are silently clamped to the valid range at encode time.
     /// `config.quality` may therefore not reflect the quality actually used.
     pub quality: u8,
 
-    /// Alpha-channel encoding quality **1 – 100**.
+    /// Alpha-channel encoding quality **1 – 10**.
     ///
     /// Controls the quality of the separate AVIF alpha plane independently
-    /// from the colour channels.  Set higher than `quality` (e.g. 95) to
+    /// from the colour channels.  Set higher than `quality` (e.g. 10) to
     /// keep the alpha channel visually lossless while compressing the colour
-    /// data more aggressively.  Clamped to `1 – 100`.  Default: `80`.
+    /// data more aggressively.  Clamped to `1 – 10`.  Default: `8`.
     ///
     /// **Note:** if this field is set directly (bypassing the builder), values
-    /// outside 1–100 are silently clamped to the valid range at encode time.
+    /// outside 1–10 are silently clamped to the valid range at encode time.
     pub alpha_quality: u8,
 
     /// Encoder speed **1 – 10** (higher = faster, slightly larger file).
@@ -103,8 +103,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            quality: 80,
-            alpha_quality: 80,
+            quality: 8,
+            alpha_quality: 8,
             speed: 6,
             strip_exif: true,
             max_input_bytes: 100 * 1024 * 1024,
@@ -116,20 +116,20 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Set the colour-channel encoding quality (1 – 100). Values are clamped.
+    /// Set the colour-channel encoding quality (1 – 10). Values are clamped.
     #[must_use]
     pub fn quality(mut self, q: u8) -> Self {
-        self.quality = q.clamp(1, 100);
+        self.quality = q.clamp(1, 10);
         self
     }
 
-    /// Set the alpha-channel encoding quality (1 – 100). Values are clamped.
+    /// Set the alpha-channel encoding quality (1 – 10). Values are clamped.
     ///
     /// Use a higher value than `quality` to keep the alpha plane visually
-    /// lossless, for example `.alpha_quality(95)`.
+    /// lossless, for example `.alpha_quality(10)`.
     #[must_use]
     pub fn alpha_quality(mut self, q: u8) -> Self {
-        self.alpha_quality = q.clamp(1, 100);
+        self.alpha_quality = q.clamp(1, 10);
         self
     }
 
@@ -203,12 +203,12 @@ impl Config {
     }
 
     /// Preset tuned for minimum Lambda cost: fastest encoder speed (10),
-    /// quality 75, EXIF stripped, 50 MiB input cap, 512 MiB memory budget.
+    /// quality 8, EXIF stripped, 50 MiB input cap, 512 MiB memory budget.
     #[must_use]
     pub fn lambda_cost_optimized() -> Self {
         Self {
-            quality: 75,
-            alpha_quality: 75,
+            quality: 8,
+            alpha_quality: 8,
             speed: 10,
             strip_exif: true,
             max_input_bytes: 50 * 1024 * 1024,

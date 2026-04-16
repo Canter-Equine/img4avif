@@ -128,7 +128,7 @@ fn empty_input_returns_error() {
 #[test]
 fn config_quality_clamped() {
     assert_eq!(Config::default().quality(0).quality, 1);
-    assert_eq!(Config::default().quality(200).quality, 100);
+    assert_eq!(Config::default().quality(200).quality, 10);
 }
 
 #[test]
@@ -139,8 +139,8 @@ fn config_speed_clamped() {
 
 #[test]
 fn config_is_clone() {
-    let a = Config::default().quality(42);
-    assert_eq!(a.clone().quality, 42);
+    let a = Config::default().quality(5);
+    assert_eq!(a.clone().quality, 5);
 }
 
 /// Make a 16-bit PNG image (Rgb16 colour type).
@@ -186,25 +186,25 @@ fn png_16bit_dark_and_bright_both_succeed() {
 #[test]
 fn alpha_quality_setting_is_accepted() {
     // Verify that alpha_quality flows through without error.
-    let cfg = Config::default().quality(80).alpha_quality(95);
-    assert_eq!(cfg.alpha_quality, 95);
+    let cfg = Config::default().quality(8).alpha_quality(10);
+    assert_eq!(cfg.alpha_quality, 10);
     let avif = Converter::new(cfg)
         .unwrap()
         .convert(&make_png(16, 16))
-        .expect("alpha_quality=95 conversion failed");
+        .expect("alpha_quality=10 conversion failed");
     assert!(!avif.is_empty());
 }
 
 #[test]
 fn config_alpha_quality_clamped() {
     assert_eq!(Config::default().alpha_quality(0).alpha_quality, 1);
-    assert_eq!(Config::default().alpha_quality(200).alpha_quality, 100);
+    assert_eq!(Config::default().alpha_quality(200).alpha_quality, 10);
 }
 
 #[test]
 fn converter_exposes_config() {
-    let cfg = Config::default().quality(77);
-    assert_eq!(Converter::new(cfg).unwrap().config().quality, 77);
+    let cfg = Config::default().quality(8);
+    assert_eq!(Converter::new(cfg).unwrap().config().quality, 8);
 }
 
 #[test]
