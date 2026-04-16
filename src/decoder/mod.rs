@@ -79,7 +79,11 @@ impl RawImage {
             }
             Pixels::Rgba16(samples) => {
                 // Check every 4th sample (alpha channel) in RGBA16
-                samples.iter().skip(3).step_by(4).any(|&alpha| alpha < 65535)
+                samples
+                    .iter()
+                    .skip(3)
+                    .step_by(4)
+                    .any(|&alpha| alpha < 65535)
             }
         }
     }

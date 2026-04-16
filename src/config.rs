@@ -93,7 +93,7 @@ impl Config {
         self
     }
 
-    /// Set the encoder speed (1 – 10). 
+    /// Set the encoder speed (1 – 10).
     /// Speed 10 is recommended for Lambda to minimise CPU-time billing.
     #[must_use]
     pub fn speed(mut self, s: u8) -> Self {

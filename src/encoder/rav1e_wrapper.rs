@@ -57,7 +57,7 @@ pub fn encode_avif(
 ) -> Result<Vec<u8>, Error> {
     // Check if the image has any transparency
     let has_transparency = image.has_transparency();
-    
+
     img_debug!(
         "encode_avif: {}×{} px, quality={}, alpha_quality={}, speed={}, depth={}, transparency={}",
         image.width,
@@ -74,7 +74,7 @@ pub fn encode_avif(
 
     // Scale quality from 1-10 range to 1-100 range for ravif
     let ravif_quality = (u32::from(quality.clamp(1, 10)) * 10).min(100) as u8;
-    
+
     // Only use alpha_quality if the image has transparency; otherwise use quality
     let ravif_alpha_quality = if has_transparency {
         (u32::from(alpha_quality.clamp(1, 10)) * 10).min(100) as u8
