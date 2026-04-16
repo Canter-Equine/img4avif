@@ -562,6 +562,7 @@ dependencies = [
  "log",
  "ravif 0.13.0",
  "rawloader",
+ "rayon",
  "rgb",
  "thiserror",
 ]

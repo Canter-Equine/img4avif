@@ -76,6 +76,7 @@ rawloader = { version = "0.37", optional = true }
 # available in that environment).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ravif = { version = "0.13", default-features = false, features = ["threading"] }
+rayon = "1.11"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ravif = { version = "0.13", default-features = false }
