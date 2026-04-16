@@ -58,10 +58,6 @@ const MIN_AVIF_BYTES: usize = 20;
 /// `alpha_quality` must be in **1 – 10**; pass the same value as `quality`
 /// for uniform quality, or a higher value (e.g. 10) to keep the alpha channel
 /// visually lossless.
-/// `speed` must be in **1 – 10** (higher = faster).
-/// `alpha_quality` must be in **1 – 10**; pass the same value as `quality`
-/// for uniform quality, or a higher value (e.g. 10) to keep the alpha channel
-/// visually lossless.
 ///
 /// # Output validation
 ///

@@ -8,6 +8,39 @@ I forgot to CHANGELOG the updates from 0.2-0.4, sorry.
 
 ---
 
+## [0.6.0] — 2026-04-16
+
+### Added
+
+- **Parallel processing with rayon**: `convert_multi` now encodes multiple resolutions in parallel on native targets (non-WASM), leveraging all available CPU cores for significant performance improvements.
+- **New `convert_batch` method**: Process multiple independent images in parallel. Each image is decoded and encoded on a separate thread, providing coarse-grained parallelism for batch workloads.
+- **Alpha quality optimization**: The encoder now detects transparency in images. When an image is fully opaque (no alpha channel variation), `alpha_quality` is automatically treated as a no-op to save processing resources.
+- **Transparency detection**: New `RawImage::has_transparency()` method scans the alpha channel to determine if any pixels have transparency.
+
+### Changed — ⚠️ **BREAKING CHANGES**
+
+- **Quality scale normalization**: `Config::quality` and `Config::alpha_quality` now use a **1–10** scale (matching `Config::speed`) instead of the previous 1–100 scale.
+  - **Default values**: `quality` and `alpha_quality` changed from `80` → `8`
+  - **Lambda preset**: `lambda_cost_optimized()` preset changed from `75` → `8`
+  - **Migration**: Divide your existing quality values by 10 (e.g., `quality(80)` → `quality(8)`)
+  - **Internal mapping**: The 1–10 user-facing values are scaled back to 1–100 when calling `ravif`, so encoder behavior is preserved
+
+### Migration Guide (0.5.x → 0.6.0)
+
+```rust
+// Before (0.5.x)
+Config::default()
+    .quality(80)
+    .alpha_quality(95)
+
+// After (0.6.0)
+Config::default()
+    .quality(8)
+    .alpha_quality(10)  // rounded from 95 → 10
+```
+
+---
+
 ## [0.5.2] — 2026-04-12
 
 ### Changed
