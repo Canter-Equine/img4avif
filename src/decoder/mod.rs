@@ -66,6 +66,29 @@ pub struct RawImage {
     pub pixels: Pixels,
 }
 
+impl RawImage {
+    /// Returns `true` if the image has any pixel with alpha < max (transparency).
+    ///
+    /// Scans the alpha channel of all pixels to detect if any transparency exists.
+    /// For opaque images (all alpha = 255 for 8-bit or 65535 for 16-bit), returns `false`.
+    pub fn has_transparency(&self) -> bool {
+        match &self.pixels {
+            Pixels::Rgba8(bytes) => {
+                // Check every 4th byte (alpha channel) in RGBA8
+                bytes.iter().skip(3).step_by(4).any(|&alpha| alpha < 255)
+            }
+            Pixels::Rgba16(samples) => {
+                // Check every 4th sample (alpha channel) in RGBA16
+                samples
+                    .iter()
+                    .skip(3)
+                    .step_by(4)
+                    .any(|&alpha| alpha < 65535)
+            }
+        }
+    }
+}
+
 /// Returns a reference to the lazily-initialised set of recognised HEIF/HEIC
 /// major brand codes.
 ///
@@ -415,5 +438,63 @@ mod tests {
             out,
             vec![1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17]
         );
+    }
+
+    #[test]
+    fn has_transparency_detects_alpha_in_rgba8() {
+        // Fully opaque image
+        let opaque = RawImage {
+            width: 2,
+            height: 1,
+            pixels: Pixels::Rgba8(Arc::from(vec![
+                255, 0, 0, 255, // Red pixel, fully opaque
+                0, 255, 0, 255, // Green pixel, fully opaque
+            ])),
+        };
+        assert!(!opaque.has_transparency());
+
+        // Partially transparent image
+        let transparent = RawImage {
+            width: 2,
+            height: 1,
+            pixels: Pixels::Rgba8(Arc::from(vec![
+                255, 0, 0, 255, // Red pixel, fully opaque
+                0, 255, 0, 128, // Green pixel, semi-transparent
+            ])),
+        };
+        assert!(transparent.has_transparency());
+
+        // Fully transparent image
+        let fully_transparent = RawImage {
+            width: 1,
+            height: 1,
+            pixels: Pixels::Rgba8(Arc::from(vec![0, 0, 0, 0])),
+        };
+        assert!(fully_transparent.has_transparency());
+    }
+
+    #[test]
+    fn has_transparency_detects_alpha_in_rgba16() {
+        // Fully opaque image
+        let opaque = RawImage {
+            width: 2,
+            height: 1,
+            pixels: Pixels::Rgba16(Arc::from(vec![
+                65535, 0, 0, 65535, // Red pixel, fully opaque
+                0, 65535, 0, 65535, // Green pixel, fully opaque
+            ])),
+        };
+        assert!(!opaque.has_transparency());
+
+        // Partially transparent image
+        let transparent = RawImage {
+            width: 2,
+            height: 1,
+            pixels: Pixels::Rgba16(Arc::from(vec![
+                65535, 0, 0, 65535, // Red pixel, fully opaque
+                0, 65535, 0, 32768, // Green pixel, semi-transparent
+            ])),
+        };
+        assert!(transparent.has_transparency());
     }
 }
