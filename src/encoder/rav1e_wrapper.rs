@@ -14,6 +14,9 @@
 //! range (0 – 1 023) by right-shifting six bits, then converts to YCbCr using
 //! the BT.601 matrix.  This matches the colour model used by the 8-bit path
 //! so there is no colour-space discontinuity when mixing input depths.
+//! Rounding precision in the YCbCr step is scaled to the configured quality
+//! (1 – 10): quality 9–10 uses a float path (near-exact), quality 7–8 uses
+//! integer fixed-point (±1 LSB), and lower qualities allow up to ±8 LSB.
 //!
 //! If any check fails output validation, [`Error::Encode`] is returned with a descriptive
 //! message instead of silently handing back corrupt bytes to the caller.
@@ -97,6 +100,7 @@ pub fn encode_avif(
             image.height,
             samples,
             ravif_quality,
+            quality,
             speed,
             ravif_alpha_quality,
         ),
@@ -269,6 +273,7 @@ fn encode_16bit(
     height: u32,
     pixels: &[u16],
     quality: u8,
+    quality_1_10: u8,
     speed: u8,
     alpha_quality: u8,
 ) -> Result<Vec<u8>, Error> {
@@ -290,7 +295,7 @@ fn encode_16bit(
 
     for chunk in pixels.chunks_exact(4) {
         let (r, g, b, a) = (chunk[0], chunk[1], chunk[2], chunk[3]);
-        ycbcr_planes.push(rgba16_to_10bit_ycbcr_bt601(r, g, b));
+        ycbcr_planes.push(rgba16_to_10bit_ycbcr_bt601(r, g, b, quality_1_10));
         // Scale alpha from 16-bit to 10-bit.
         alpha_plane.push(a >> 6);
     }
@@ -321,7 +326,25 @@ fn encode_16bit(
 /// function, extended to 16-bit input so the full precision of 16-bit PNG
 /// files is preserved in the 10-bit AVIF stream.
 ///
-/// ## Implementation
+/// ## Quality-dependent rounding
+///
+/// The `quality_1_10` parameter (1 – 10) controls how much rounding error is
+/// tolerated in the colour conversion step.  Higher quality = smaller error.
+///
+/// | Quality | Path | Max rounding error |
+/// |---------|------|--------------------|
+/// | 9 – 10  | f32 (BT.601 exact) | < 0.5 ULP (effectively zero) |
+/// | 7 – 8   | integer fixed-point | ±1 LSB |
+/// | 5 – 6   | integer + 1 extra rounding bit | ±2 LSB |
+/// | 3 – 4   | integer + 2 extra rounding bits | ±4 LSB |
+/// | 1 – 2   | integer + 3 extra rounding bits | ±8 LSB |
+///
+/// At quality 9–10 the small extra cost of f32 is invisible next to the AV1
+/// encoder's own work.  At lower qualities the encoder's quantisation step
+/// already dominates any colour-conversion error, so coarser arithmetic is
+/// acceptable and slightly faster in the conversion loop.
+///
+/// ## Implementation (integer path)
 ///
 /// Uses integer fixed-point arithmetic to avoid f32↔integer conversions
 /// in the per-pixel hot loop:
@@ -331,7 +354,6 @@ fn encode_16bit(
 ///
 /// The coefficients are derived from the floating-point BT.601 formula and
 /// rounded to preserve grey neutrality (Cb = Cr = 512 for any grey input).
-/// Maximum rounding error vs. the f32 reference is **±1 LSB** at 10-bit.
 ///
 /// ## Overflow safety
 ///
@@ -340,7 +362,22 @@ fn encode_16bit(
 /// * `chroma_b` / `chroma_r` accumulate into `i32` — extremes are approximately
 ///   `±33.5 M + 33.6 M ≈ ±67 M`, well within the `i32` range of `±2.1 × 10⁹`.
 #[inline]
-fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
+fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16, quality_1_10: u8) -> [u16; 3] {
+    // Quality 9–10: use the f32 path for near-exact conversion (no rounding error).
+    if quality_1_10 >= 9 {
+        return rgba16_to_10bit_ycbcr_bt601_f32(r, g, b);
+    }
+
+    // Number of extra bits to round the 10-bit output by, based on quality tier.
+    // This controls how much rounding error is tolerated beyond the inherent ±1 LSB
+    // from the integer fixed-point coefficients.
+    let extra_bits: u32 = match quality_1_10 {
+        7..=8 => 0, // ±1 LSB (minimal — coefficient error only)
+        5..=6 => 1, // ±2 LSB
+        3..=4 => 2, // ±4 LSB
+        _     => 3, // quality 1–2: ±8 LSB
+    };
+
     // Maximum value representable in 10-bit (2¹⁰ − 1 = 1023).
     const MAX_10BIT: u32 = 1023;
     const MAX_10BIT_I32: i32 = 1023; // same value; avoids a u32→i32 cast in clamp
@@ -390,7 +427,54 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let cr = (chroma_r >> 16).clamp(0, MAX_10BIT_I32) as u16;
 
-    [y, cb, cr]
+    [
+        apply_extra_rounding(y,  extra_bits),
+        apply_extra_rounding(cb, extra_bits),
+        apply_extra_rounding(cr, extra_bits),
+    ]
+}
+
+/// Round a 10-bit value to the nearest multiple of `1 << extra_bits`.
+///
+/// `extra_bits = 0` is a no-op.  The result is clamped to [0, 1023].
+/// Used to apply quality-dependent rounding in [`rgba16_to_10bit_ycbcr_bt601`].
+#[inline]
+fn apply_extra_rounding(v: u16, extra_bits: u32) -> u16 {
+    if extra_bits == 0 {
+        return v;
+    }
+    let step = 1u32 << extra_bits;
+    let half = step >> 1;
+    // Round to nearest multiple of `step`, then clamp to 10-bit range.
+    let rounded = (u32::from(v) + half) & !(step - 1);
+    #[allow(clippy::cast_possible_truncation)]
+    { rounded.min(1023) as u16 }
+}
+
+/// f32 BT.601 reference path used for quality 9–10 (no significant rounding error).
+///
+/// Each channel is computed with f32 precision; the result is rounded to the
+/// nearest integer and clamped to [0, 1023].  For grey inputs (`R = G = B`)
+/// the chroma values are exactly 512 within f32 precision.
+#[inline]
+fn rgba16_to_10bit_ycbcr_bt601_f32(r: u16, g: u16, b: u16) -> [u16; 3] {
+    const MAX10: f32 = 1023.0;
+    const SCALE: f32 = 1023.0 / 65535.0;
+    const SHIFT: f32 = 512.0;
+    const KR: f32 = 0.2990;
+    const KG: f32 = 0.5870;
+    const KB: f32 = 0.1140;
+    let (rf, gf, bf) = (f32::from(r), f32::from(g), f32::from(b));
+    let y  = SCALE * (KR * rf + KG * gf + KB * bf);
+    let cb = (SCALE * bf - y) * (0.5 / (1.0 - KB)) + SHIFT;
+    let cr = (SCALE * rf - y) * (0.5 / (1.0 - KR)) + SHIFT;
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss
+    )]
+    let c10 = |v: f32| v.round().clamp(0.0, MAX10) as u32 as u16;
+    [c10(y), c10(cb), c10(cr)]
 }
 
 #[cfg(test)]
@@ -477,36 +561,17 @@ mod tests {
         assert!(validate_avif_output(&valid, 4, 4).is_ok());
     }
 
-    /// Verify that the integer fixed-point `rgba16_to_10bit_ycbcr_bt601`
-    /// matches the f32 reference implementation to within ±1 LSB at 10-bit.
+    /// Verify that the quality-dependent rounding tiers work as documented.
     ///
-    /// The reference is an inline f32 implementation of the same BT.601 formula.
-    /// A ±1 difference is acceptable because it is well within AV1 quantisation
-    /// noise and can only occur due to rounding of fixed-point coefficients.
+    /// * Quality 9–10 (f32 path): output equals the f32 reference exactly.
+    /// * Quality 7–8 (integer path): max error ≤ ±1 LSB vs. the f32 reference.
+    /// * Quality 5–6: max error ≤ ±2 LSB.
+    /// * Quality 3–4: max error ≤ ±4 LSB.
+    /// * Quality 1–2: max error ≤ ±8 LSB.
     #[test]
-    fn ycbcr_integer_matches_float_reference() {
-        // f32 reference — identical to the original implementation.
-        fn float_ref(r: u16, g: u16, b: u16) -> [u16; 3] {
-            const MAX10: f32 = 1023.0;
-            const SCALE: f32 = 1023.0 / 65535.0;
-            const SHIFT: f32 = 512.0;
-            const KR: f32 = 0.2990;
-            const KG: f32 = 0.5870;
-            const KB: f32 = 0.1140;
-            let (rf, gf, bf) = (f32::from(r), f32::from(g), f32::from(b));
-            let y = SCALE * (KR * rf + KG * gf + KB * bf);
-            let cb = (SCALE * bf - y) * (0.5 / (1.0 - KB)) + SHIFT;
-            let cr = (SCALE * rf - y) * (0.5 / (1.0 - KR)) + SHIFT;
-            // The clamp guarantees [0, 1023] ⊂ [0, 65535], so the u32→u16
-            // truncation and the f32→u32 sign/truncation are intentional here.
-            #[allow(
-                clippy::cast_sign_loss,
-                clippy::cast_possible_truncation,
-                clippy::cast_precision_loss
-            )]
-            let c10 = |v: f32| v.round().clamp(0.0, MAX10) as u32 as u16;
-            [c10(y), c10(cb), c10(cr)]
-        }
+    fn ycbcr_quality_dependent_rounding() {
+        // f32 reference — the canonical BT.601 implementation.
+        let float_ref = |r: u16, g: u16, b: u16| rgba16_to_10bit_ycbcr_bt601_f32(r, g, b);
 
         // Representative test vectors.
         let cases: &[(u16, u16, u16)] = &[
@@ -521,26 +586,52 @@ mod tests {
             (1000, 800, 600),      // arbitrary dark colour
         ];
 
-        for &(r, g, b) in cases {
-            let int_out = rgba16_to_10bit_ycbcr_bt601(r, g, b);
-            let ref_out = float_ref(r, g, b);
-            let max_diff = int_out
-                .iter()
-                .zip(ref_out.iter())
-                .map(|(&a, &b)| a.abs_diff(b))
-                .max()
-                .unwrap();
-            assert!(
-                max_diff <= 1,
-                "rgb=({r},{g},{b}): int={int_out:?} ref={ref_out:?} diff={max_diff}"
-            );
+        let tiers: &[(u8, u16)] = &[
+            (10, 0), // f32 path — exact
+            (9,  0),
+            (8,  1), // integer fixed-point, ±1 LSB
+            (7,  1),
+            (6,  2), // integer + 1 extra bit, ±2 LSB
+            (5,  2),
+            (4,  4), // integer + 2 extra bits, ±4 LSB
+            (3,  4),
+            (2,  8), // integer + 3 extra bits, ±8 LSB
+            (1,  8),
+        ];
+
+        for &(quality, max_allowed_diff) in tiers {
+            for &(r, g, b) in cases {
+                let out = rgba16_to_10bit_ycbcr_bt601(r, g, b, quality);
+                let ref_out = float_ref(r, g, b);
+                let max_diff = out
+                    .iter()
+                    .zip(ref_out.iter())
+                    .map(|(&a, &b)| a.abs_diff(b))
+                    .max()
+                    .unwrap();
+                assert!(
+                    max_diff <= max_allowed_diff,
+                    "quality={quality} rgb=({r},{g},{b}): \
+                     out={out:?} ref={ref_out:?} diff={max_diff} allowed={max_allowed_diff}"
+                );
+            }
         }
 
-        // Grey-neutrality: any grey input must produce exactly Cb = Cr = 512.
-        for level in [0u16, 1024, 16384, 32768, 65535] {
-            let [_y, cb, cr] = rgba16_to_10bit_ycbcr_bt601(level, level, level);
-            assert_eq!(cb, 512, "grey level {level}: expected Cb=512, got {cb}");
-            assert_eq!(cr, 512, "grey level {level}: expected Cr=512, got {cr}");
+        // Grey-neutrality: any grey input must produce exactly Cb = Cr = 512
+        // at every quality tier (the chroma midpoint is a power-of-2-aligned value
+        // and is preserved by every rounding step).
+        for &(quality, _) in tiers {
+            for level in [0u16, 1024, 16384, 32768, 65535] {
+                let [_y, cb, cr] = rgba16_to_10bit_ycbcr_bt601(level, level, level, quality);
+                assert_eq!(
+                    cb, 512,
+                    "quality={quality} grey level {level}: expected Cb=512, got {cb}"
+                );
+                assert_eq!(
+                    cr, 512,
+                    "quality={quality} grey level {level}: expected Cr=512, got {cr}"
+                );
+            }
         }
     }
 }

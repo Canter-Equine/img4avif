@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "img4avif"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "image",
