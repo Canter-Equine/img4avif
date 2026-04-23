@@ -122,7 +122,7 @@ pub mod metadata;
 pub mod resize;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub(crate) mod decoder;
 pub(crate) mod encoder;
@@ -334,16 +334,19 @@ impl Converter {
         // the total RSS increase accumulated across all resizes and encodes.
         let guard = MemoryGuard::new(self.config.memory_limit_bytes);
 
-        // First, deduplicate resolutions to avoid redundant work
-        let mut unique_resolutions: Vec<OutputResolution> = Vec::new();
-        let mut resolution_indices: Vec<(usize, OutputResolution)> = Vec::new();
-
-        for (idx, &resolution) in resolutions.iter().enumerate() {
-            if !unique_resolutions.contains(&resolution) {
-                unique_resolutions.push(resolution);
-            }
-            resolution_indices.push((idx, resolution));
-        }
+        // First, deduplicate resolutions to avoid redundant work.
+        // A HashSet tracks which resolutions have already been seen so the
+        // uniqueness check is O(1) rather than O(n) for each element.
+        let mut seen: HashSet<OutputResolution> = HashSet::new();
+        let unique_resolutions: Vec<OutputResolution> = resolutions
+            .iter()
+            .copied()
+            .filter(|r| seen.insert(*r))
+            .collect();
+        // Keep an ordered list of (original-index, resolution) pairs so the
+        // output can be reconstructed in the caller's requested order.
+        let resolution_indices: Vec<(usize, OutputResolution)> =
+            resolutions.iter().copied().enumerate().collect();
 
         // Parallel encode on native targets, sequential on WASM
         #[cfg(not(target_arch = "wasm32"))]

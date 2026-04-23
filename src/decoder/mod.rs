@@ -71,20 +71,15 @@ impl RawImage {
     ///
     /// Scans the alpha channel of all pixels to detect if any transparency exists.
     /// For opaque images (all alpha = 255 for 8-bit or 65535 for 16-bit), returns `false`.
+    ///
+    /// Uses `chunks_exact(4)` to iterate over RGBA quads, which enables the
+    /// compiler to auto-vectorise the scan with SIMD instructions.
     pub fn has_transparency(&self) -> bool {
         match &self.pixels {
-            Pixels::Rgba8(bytes) => {
-                // Check every 4th byte (alpha channel) in RGBA8
-                bytes.iter().skip(3).step_by(4).any(|&alpha| alpha < 255)
-            }
-            Pixels::Rgba16(samples) => {
-                // Check every 4th sample (alpha channel) in RGBA16
-                samples
-                    .iter()
-                    .skip(3)
-                    .step_by(4)
-                    .any(|&alpha| alpha < 65535)
-            }
+            // Each RGBA8 quad is 4 bytes; index 3 is the alpha channel.
+            Pixels::Rgba8(bytes) => bytes.chunks_exact(4).any(|px| px[3] < 255),
+            // Each RGBA16 quad is 4 u16 samples; index 3 is the alpha channel.
+            Pixels::Rgba16(samples) => samples.chunks_exact(4).any(|px| px[3] < 65535),
         }
     }
 }

@@ -321,32 +321,70 @@ fn encode_16bit(
 /// function, extended to 16-bit input so the full precision of 16-bit PNG
 /// files is preserved in the 10-bit AVIF stream.
 ///
+/// ## Implementation
+///
+/// Uses integer fixed-point arithmetic to avoid f32↔integer conversions
+/// in the per-pixel hot loop:
+///
+/// * Y  — 20-bit fixed-point scale (`2^20`).
+/// * Cb / Cr — 16-bit fixed-point scale (`2^16`).
+///
+/// The coefficients are derived from the floating-point BT.601 formula and
+/// rounded to preserve grey neutrality (Cb = Cr = 512 for any grey input).
+/// Maximum rounding error vs. the f32 reference is **±1 LSB** at 10-bit.
+///
+/// ## Overflow safety
+///
+/// * `y_fp` accumulates into `u32` — max value is `16368 × 65535 ≈ 1.07 × 10⁹`,
+///   well within the `u32` range of `4.29 × 10⁹`.
+/// * `cb_fp` / `cr_fp` accumulate into `i32` — extremes are approximately
+///   `±33.5 M + 33.6 M ≈ ±67 M`, well within the `i32` range of `±2.1 × 10⁹`.
 #[inline]
-#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-// Safety: clamp(0.0, MAX10) guarantees the value is in [0, 1023]; the
-// intermediate `as u32` is non-negative and fits in u16.
 fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
-    const MAX10: f32 = 1023.0;
-    // Scale factor from 16-bit (0-65535) to 10-bit (0-1023).
-    const SCALE: f32 = MAX10 / 65535.0;
-    const SHIFT: f32 = 512.0; // 2^(depth−1) = 2^9 = 512: unsigned chroma midpoint for 10-bit full-range YCbCr
-                              // (ITU-R BT.601 unsigned representation; differs from 0.5×MAX10 = 511.5)
-    const KR: f32 = 0.2990;
-    const KG: f32 = 0.5870;
-    const KB: f32 = 0.1140;
+    // ── Y (luma) ─────────────────────────────────────────────────────────
+    // Scale: 2^20.  Coefficients = round(Kr/Kg/Kb × (1023/65535) × 2^20).
+    // Sum = 16368 → for R=G=B=65535: Y = round(16368×65535 / 2^20) = 1023.
+    const KR_Y: u32 = 4894;
+    const KG_Y: u32 = 9608;
+    const KB_Y: u32 = 1866;
+    const HALF_Y: u32 = 1 << 19; // 0.5 in fixed-point for rounding
 
-    let (rf, gf, bf) = (f32::from(r), f32::from(g), f32::from(b));
+    // ── Cb / Cr (chroma) ─────────────────────────────────────────────────
+    // Scale: 2^16.  Coefficients = round(channel_weight × (1023/65535) × scale_c × 2^16).
+    // scale_cb = 0.5/(1−Kb) ≈ 0.5643;  scale_cr = 0.5/(1−Kr) ≈ 0.7133.
+    // Grey-balance constraint: Cb_R + Cb_G + Cb_B = 0; Cr_R + Cr_G + Cr_B = 0.
+    const CB_R: i32 = -173;
+    const CB_G: i32 = -339;
+    const CB_B: i32 = 512;
+    const CR_R: i32 = 511;
+    const CR_G: i32 = -428;
+    const CR_B: i32 = -83;
+    // 512 (chroma midpoint) pre-shifted by 2^16 and combined with rounding (2^15).
+    const CHROMA_OFFSET: i32 = 512 * (1 << 16) + (1 << 15);
 
-    let y = SCALE * (KR * rf + KG * gf + KB * bf);
-    let cb = (SCALE * bf - y) * (0.5 / (1.0 - KB)) + SHIFT;
-    let cr = (SCALE * rf - y) * (0.5 / (1.0 - KR)) + SHIFT;
+    let (r32, g32, b32) = (u32::from(r), u32::from(g), u32::from(b));
+    let (ri, gi, bi) = (i32::from(r), i32::from(g), i32::from(b));
 
-    // Clamp before cast to avoid truncation/sign-loss from floating-point
-    // rounding at the edges of the signal range.  We clamp to [0.0, MAX10]
-    // then cast through u32 (always ≥ 0) to u16, satisfying the
-    // `cast_sign_loss` lint without using `allow`.
-    let clamp10 = |v: f32| v.round().clamp(0.0, MAX10) as u32 as u16;
-    [clamp10(y), clamp10(cb), clamp10(cr)]
+    // Luma
+    let y_fp = KR_Y * r32 + KG_Y * g32 + KB_Y * b32;
+    // SAFETY: `(y_fp + HALF_Y) >> 20` is at most `(16368×65535 + 2^19) >> 20`
+    // ≈ 1023, which always fits in u16.
+    #[allow(clippy::cast_possible_truncation)]
+    let y = ((y_fp + HALF_Y) >> 20).min(1023) as u16;
+
+    // Chroma Cb
+    let chroma_b = CB_R * ri + CB_G * gi + CB_B * bi + CHROMA_OFFSET;
+    // SAFETY: `clamp(0, 1023)` guarantees the i32 is in [0, 1023], which is
+    // non-negative and fits in u16.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let cb = (chroma_b >> 16).clamp(0, 1023) as u16;
+
+    // Chroma Cr
+    let chroma_r = CR_R * ri + CR_G * gi + CR_B * bi + CHROMA_OFFSET;
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let cr = (chroma_r >> 16).clamp(0, 1023) as u16;
+
+    [y, cb, cr]
 }
 
 #[cfg(test)]
@@ -431,5 +469,72 @@ mod tests {
         valid[4..8].copy_from_slice(b"ftyp");
         valid[8..12].copy_from_slice(b"avis");
         assert!(validate_avif_output(&valid, 4, 4).is_ok());
+    }
+
+    /// Verify that the integer fixed-point `rgba16_to_10bit_ycbcr_bt601`
+    /// matches the f32 reference implementation to within ±1 LSB at 10-bit.
+    ///
+    /// The reference is an inline f32 implementation of the same BT.601 formula.
+    /// A ±1 difference is acceptable because it is well within AV1 quantisation
+    /// noise and can only occur due to rounding of fixed-point coefficients.
+    #[test]
+    fn ycbcr_integer_matches_float_reference() {
+        // f32 reference — identical to the original implementation.
+        fn float_ref(r: u16, g: u16, b: u16) -> [u16; 3] {
+            const MAX10: f32 = 1023.0;
+            const SCALE: f32 = 1023.0 / 65535.0;
+            const SHIFT: f32 = 512.0;
+            const KR: f32 = 0.2990;
+            const KG: f32 = 0.5870;
+            const KB: f32 = 0.1140;
+            let (rf, gf, bf) = (f32::from(r), f32::from(g), f32::from(b));
+            let y = SCALE * (KR * rf + KG * gf + KB * bf);
+            let cb = (SCALE * bf - y) * (0.5 / (1.0 - KB)) + SHIFT;
+            let cr = (SCALE * rf - y) * (0.5 / (1.0 - KR)) + SHIFT;
+            // The clamp guarantees [0, 1023] ⊂ [0, 65535], so the u32→u16
+            // truncation and the f32→u32 sign/truncation are intentional here.
+            #[allow(
+                clippy::cast_sign_loss,
+                clippy::cast_possible_truncation,
+                clippy::cast_precision_loss
+            )]
+            let c10 = |v: f32| v.round().clamp(0.0, MAX10) as u32 as u16;
+            [c10(y), c10(cb), c10(cr)]
+        }
+
+        // Representative test vectors.
+        let cases: &[(u16, u16, u16)] = &[
+            (65535, 65535, 65535), // white  — Y=1023, Cb=Cr=512
+            (0, 0, 0),             // black  — Y=0,    Cb=Cr=512
+            (65535, 0, 0),         // red
+            (0, 65535, 0),         // green
+            (0, 0, 65535),         // blue
+            (32768, 32768, 32768), // mid grey
+            (32768, 0, 0),         // mid red
+            (0, 0, 32768),         // mid blue
+            (1000, 800, 600),      // arbitrary dark colour
+        ];
+
+        for &(r, g, b) in cases {
+            let int_out = rgba16_to_10bit_ycbcr_bt601(r, g, b);
+            let ref_out = float_ref(r, g, b);
+            let max_diff = int_out
+                .iter()
+                .zip(ref_out.iter())
+                .map(|(&a, &b)| a.abs_diff(b))
+                .max()
+                .unwrap();
+            assert!(
+                max_diff <= 1,
+                "rgb=({r},{g},{b}): int={int_out:?} ref={ref_out:?} diff={max_diff}"
+            );
+        }
+
+        // Grey-neutrality: any grey input must produce exactly Cb = Cr = 512.
+        for level in [0u16, 1024, 16384, 32768, 65535] {
+            let [_y, cb, cr] = rgba16_to_10bit_ycbcr_bt601(level, level, level);
+            assert_eq!(cb, 512, "grey level {level}: expected Cb=512, got {cb}");
+            assert_eq!(cr, 512, "grey level {level}: expected Cr=512, got {cr}");
+        }
     }
 }
