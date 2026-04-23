@@ -375,7 +375,7 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16, quality_1_10: u8) -> [u16
         7..=8 => 0, // ±1 LSB (minimal — coefficient error only)
         5..=6 => 1, // ±2 LSB
         3..=4 => 2, // ±4 LSB
-        _     => 3, // quality 1–2: ±8 LSB
+        _ => 3,     // quality 1–2: ±8 LSB
     };
 
     // Maximum value representable in 10-bit (2¹⁰ − 1 = 1023).
@@ -428,7 +428,7 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16, quality_1_10: u8) -> [u16
     let cr = (chroma_r >> 16).clamp(0, MAX_10BIT_I32) as u16;
 
     [
-        apply_extra_rounding(y,  extra_bits),
+        apply_extra_rounding(y, extra_bits),
         apply_extra_rounding(cb, extra_bits),
         apply_extra_rounding(cr, extra_bits),
     ]
@@ -448,7 +448,9 @@ fn apply_extra_rounding(v: u16, extra_bits: u32) -> u16 {
     // Round to nearest multiple of `step`, then clamp to 10-bit range.
     let rounded = (u32::from(v) + half) & !(step - 1);
     #[allow(clippy::cast_possible_truncation)]
-    { rounded.min(1023) as u16 }
+    {
+        rounded.min(1023) as u16
+    }
 }
 
 /// f32 BT.601 reference path used for quality 9–10 (no significant rounding error).
@@ -465,7 +467,7 @@ fn rgba16_to_10bit_ycbcr_bt601_f32(r: u16, g: u16, b: u16) -> [u16; 3] {
     const KG: f32 = 0.5870;
     const KB: f32 = 0.1140;
     let (rf, gf, bf) = (f32::from(r), f32::from(g), f32::from(b));
-    let y  = SCALE * (KR * rf + KG * gf + KB * bf);
+    let y = SCALE * (KR * rf + KG * gf + KB * bf);
     let cb = (SCALE * bf - y) * (0.5 / (1.0 - KB)) + SHIFT;
     let cr = (SCALE * rf - y) * (0.5 / (1.0 - KR)) + SHIFT;
     #[allow(
@@ -588,15 +590,15 @@ mod tests {
 
         let tiers: &[(u8, u16)] = &[
             (10, 0), // f32 path — exact
-            (9,  0),
-            (8,  1), // integer fixed-point, ±1 LSB
-            (7,  1),
-            (6,  2), // integer + 1 extra bit, ±2 LSB
-            (5,  2),
-            (4,  4), // integer + 2 extra bits, ±4 LSB
-            (3,  4),
-            (2,  8), // integer + 3 extra bits, ±8 LSB
-            (1,  8),
+            (9, 0),
+            (8, 1), // integer fixed-point, ±1 LSB
+            (7, 1),
+            (6, 2), // integer + 1 extra bit, ±2 LSB
+            (5, 2),
+            (4, 4), // integer + 2 extra bits, ±4 LSB
+            (3, 4),
+            (2, 8), // integer + 3 extra bits, ±8 LSB
+            (1, 8),
         ];
 
         for &(quality, max_allowed_diff) in tiers {
