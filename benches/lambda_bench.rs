@@ -16,8 +16,18 @@ fn make_png(width: u32, height: u32) -> Vec<u8> {
 fn make_png_16bit(width: u32, height: u32) -> Vec<u8> {
     use image::{ImageBuffer, Rgba};
     // Solid mid-grey in 16-bit: each channel = 32768 (50% of 65535).
-    let img: ImageBuffer<Rgba<u16>, Vec<u16>> =
-        ImageBuffer::from_pixel(width, height, Rgba([32768u16, 32768, 32768, 65535]));
+    const MID_GREY_16BIT: u16 = 32768;
+    const FULL_ALPHA_16BIT: u16 = 65535;
+    let img: ImageBuffer<Rgba<u16>, Vec<u16>> = ImageBuffer::from_pixel(
+        width,
+        height,
+        Rgba([
+            MID_GREY_16BIT,
+            MID_GREY_16BIT,
+            MID_GREY_16BIT,
+            FULL_ALPHA_16BIT,
+        ]),
+    );
     let mut buf = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
         .unwrap();
