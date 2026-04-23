@@ -337,13 +337,18 @@ fn encode_16bit(
 ///
 /// * `y_fp` accumulates into `u32` — max value is `16368 × 65535 ≈ 1.07 × 10⁹`,
 ///   well within the `u32` range of `4.29 × 10⁹`.
-/// * `cb_fp` / `cr_fp` accumulate into `i32` — extremes are approximately
+/// * `chroma_b` / `chroma_r` accumulate into `i32` — extremes are approximately
 ///   `±33.5 M + 33.6 M ≈ ±67 M`, well within the `i32` range of `±2.1 × 10⁹`.
 #[inline]
 fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
+    // Maximum value representable in 10-bit (2¹⁰ − 1 = 1023).
+    const MAX_10BIT: u32 = 1023;
+    const MAX_10BIT_I32: i32 = 1023; // same value; avoids a u32→i32 cast in clamp
+
     // ── Y (luma) ─────────────────────────────────────────────────────────
     // Scale: 2^20.  Coefficients = round(Kr/Kg/Kb × (1023/65535) × 2^20).
-    // Sum = 16368 → for R=G=B=65535: Y = round(16368×65535 / 2^20) = 1023.
+    // 4894 + 9608 + 1866 = 16368 → for R=G=B=65535:
+    //   Y = round((16368 × 65535 + 2^19) / 2^20) = round(1023.5) = 1023. ✓
     const KR_Y: u32 = 4894;
     const KG_Y: u32 = 9608;
     const KB_Y: u32 = 1866;
@@ -352,7 +357,8 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
     // ── Cb / Cr (chroma) ─────────────────────────────────────────────────
     // Scale: 2^16.  Coefficients = round(channel_weight × (1023/65535) × scale_c × 2^16).
     // scale_cb = 0.5/(1−Kb) ≈ 0.5643;  scale_cr = 0.5/(1−Kr) ≈ 0.7133.
-    // Grey-balance constraint: Cb_R + Cb_G + Cb_B = 0; Cr_R + Cr_G + Cr_B = 0.
+    // Grey-balance constraint: Cb_R + Cb_G + Cb_B = 0  (−173 − 339 + 512 = 0).
+    //                          Cr_R + Cr_G + Cr_B = 0  ( 511 − 428 −  83 = 0).
     const CB_R: i32 = -173;
     const CB_G: i32 = -339;
     const CB_B: i32 = 512;
@@ -368,21 +374,21 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16) -> [u16; 3] {
     // Luma
     let y_fp = KR_Y * r32 + KG_Y * g32 + KB_Y * b32;
     // SAFETY: `(y_fp + HALF_Y) >> 20` is at most `(16368×65535 + 2^19) >> 20`
-    // ≈ 1023, which always fits in u16.
+    // ≈ 1023 = MAX_10BIT, which always fits in u16.
     #[allow(clippy::cast_possible_truncation)]
-    let y = ((y_fp + HALF_Y) >> 20).min(1023) as u16;
+    let y = ((y_fp + HALF_Y) >> 20).min(MAX_10BIT) as u16;
 
     // Chroma Cb
     let chroma_b = CB_R * ri + CB_G * gi + CB_B * bi + CHROMA_OFFSET;
-    // SAFETY: `clamp(0, 1023)` guarantees the i32 is in [0, 1023], which is
-    // non-negative and fits in u16.
+    // SAFETY: `clamp(0, MAX_10BIT as i32)` guarantees the i32 is in [0, 1023],
+    // which is non-negative and fits in u16.
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let cb = (chroma_b >> 16).clamp(0, 1023) as u16;
+    let cb = (chroma_b >> 16).clamp(0, MAX_10BIT_I32) as u16;
 
     // Chroma Cr
     let chroma_r = CR_R * ri + CR_G * gi + CR_B * bi + CHROMA_OFFSET;
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let cr = (chroma_r >> 16).clamp(0, 1023) as u16;
+    let cr = (chroma_r >> 16).clamp(0, MAX_10BIT_I32) as u16;
 
     [y, cb, cr]
 }
