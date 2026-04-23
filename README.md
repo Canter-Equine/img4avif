@@ -38,7 +38,7 @@ on AWS Lambda (Linux x86_64 / aarch64).
 
 ```toml
 [dependencies]
-img4avif = "0.6"
+img4avif = "0.7"
 ```
 
 ### Minimum supported Rust version (MSRV)
@@ -111,7 +111,7 @@ Many smartphone cameras produce HDR10-tagged HEIC files.  Enable the
 
 ```toml
 [dependencies]
-img4avif = { version = "0.5", features = ["heic-experimental"] }
+img4avif = { version = "0.7", features = ["heic-experimental"] }
 ```
 
 > ⚠️  Requires `libheif` installed on the system at link time.  See
@@ -251,7 +251,7 @@ subscriber](https://docs.rs/log#available-logging-implementations):
 
 ```toml
 [dependencies]
-img4avif = { version = "0.5", features = ["dev-logging"] }
+img4avif = { version = "0.7", features = ["dev-logging"] }
 env_logger = "0.11"
 ```
 
@@ -285,11 +285,11 @@ to `()` — the compiler removes them entirely, so there is **zero runtime cost*
 ```toml
 # Enable experimental HEIC/HEIF support (requires libheif C library):
 [dependencies]
-img4avif = { version = "0.5", features = ["heic-experimental"] }
+img4avif = { version = "0.7", features = ["heic-experimental"] }
 
 # Enable experimental RAW support (pure Rust, no C):
 [dependencies]
-img4avif = { version = "0.5", features = ["raw-experimental"] }
+img4avif = { version = "0.7", features = ["raw-experimental"] }
 ```
 
 ---
@@ -299,7 +299,7 @@ img4avif = { version = "0.5", features = ["raw-experimental"] }
 Measurements on an `m6i.large` EC2 (2 vCPU, 8 GB, Amazon Linux 2023,
 `RUSTFLAGS="-C target-cpu=native"`).
 
-### Throughput Estimates (quality=80)
+### Throughput Estimates (quality=8)
 
 | Input size | Encode time | AVIF size | Peak RSS |
 |-----------|-------------|-----------|----------|
