@@ -7,6 +7,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.7.0] — 2026-04-23
+
+### Added
+
+- **Quality-dependent YCbCr rounding**: The colour-conversion precision in the
+  16-bit PNG → 10-bit AVIF path now scales with the configured quality level,
+  so high-quality encodes get the most accurate colour representation while
+  lower-quality encodes can afford slightly coarser arithmetic (which is
+  invisible at those quality settings because the AV1 encoder's quantisation
+  step dominates).
+
+  | Quality | YCbCr conversion path | Max rounding error |
+  |---------|----------------------|--------------------|
+  | 9 – 10  | f32 (BT.601 exact)   | < 0.5 ULP (effectively zero) |
+  | 7 – 8   | integer fixed-point  | ±1 LSB |
+  | 5 – 6   | integer + 1 extra rounding bit | ±2 LSB |
+  | 3 – 4   | integer + 2 extra rounding bits | ±4 LSB |
+  | 1 – 2   | integer + 3 extra rounding bits | ±8 LSB |
+
+  Grey-neutrality (`Cb = Cr = 512` for any grey input) is preserved at every
+  quality tier.  The 8-bit JPEG/PNG/WebP path is unaffected.
+
+---
+
 ## [0.6.0] — 2026-04-16
 
 **BREAKING CHANGES**
