@@ -16,18 +16,18 @@ use std::time::Instant;
 
 use img4avif::{Config, Converter, MemoryGuard};
 
-/// Convert `examples/fixtures/valid/2.sm.webp` with quality=10, speed=10.
+/// Convert `examples/fixtures/valid/Horse Jumping.png` with quality=10, speed=10.
 ///
-/// Output is written to `examples/out/2.sm.webp.wasm-10.avif` and uploaded
+/// Output is written to `examples/out/Horse Jumping.png.wasm-10.avif` and uploaded
 /// as the `fixture-conversion-wasm-10` CI artifact.
 #[test]
 fn wasm_fixture_quality10_speed10() {
     let input_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/fixtures/valid/2.sm.webp");
+        .join("examples/fixtures/valid/Horse Jumping.png");
     let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/out");
     fs::create_dir_all(&out_dir).expect("failed to create examples/out/");
 
-    let file_name = "2.sm.webp";
+    let file_name = "Horse Jumping.png";
 
     let data = fs::read(&input_path)
         .unwrap_or_else(|e| panic!("read {file_name}: {e}"));
@@ -62,18 +62,18 @@ fn wasm_fixture_quality10_speed10() {
     println!();
 }
 
-/// Convert `examples/fixtures/valid/Wikipedia-logo-v2-png.png` with quality=5, speed=5.
+/// Convert `examples/fixtures/valid/Horse Jumping.png` with quality=5, speed=5.
 ///
-/// Output is written to `examples/out/Wikipedia-logo-v2-png.png.wasm-5.avif`
+/// Output is written to `examples/out/Horse Jumping.png.wasm-5.avif`
 /// and uploaded as the `fixture-conversion-wasm-5` CI artifact.
 #[test]
 fn wasm_fixture_quality5_speed5() {
     let input_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/fixtures/valid/Wikipedia-logo-v2-png.png");
+        .join("examples/fixtures/valid/Horse Jumping.png");
     let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/out");
     fs::create_dir_all(&out_dir).expect("failed to create examples/out/");
 
-    let file_name = "Wikipedia-logo-v2-png.png";
+    let file_name = "Horse Jumping.png";
 
     let data = fs::read(&input_path)
         .unwrap_or_else(|e| panic!("read {file_name}: {e}"));
