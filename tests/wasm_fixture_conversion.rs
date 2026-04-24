@@ -22,15 +22,14 @@ use img4avif::{Config, Converter, MemoryGuard};
 /// as the `fixture-conversion-wasm-10` CI artifact.
 #[test]
 fn wasm_fixture_quality10_speed10() {
-    let input_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/fixtures/valid/Horse Jumping.png");
+    let input_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/valid/Horse Jumping.png");
     let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/out");
     fs::create_dir_all(&out_dir).expect("failed to create examples/out/");
 
     let file_name = "Horse Jumping.png";
 
-    let data = fs::read(&input_path)
-        .unwrap_or_else(|e| panic!("read {file_name}: {e}"));
+    let data = fs::read(&input_path).unwrap_or_else(|e| panic!("read {file_name}: {e}"));
 
     let config = Config::default().quality(10).speed(10);
     let converter = Converter::new(config).expect("failed to build Converter");
@@ -68,15 +67,14 @@ fn wasm_fixture_quality10_speed10() {
 /// and uploaded as the `fixture-conversion-wasm-5` CI artifact.
 #[test]
 fn wasm_fixture_quality5_speed5() {
-    let input_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/fixtures/valid/Horse Jumping.png");
+    let input_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/valid/Horse Jumping.png");
     let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/out");
     fs::create_dir_all(&out_dir).expect("failed to create examples/out/");
 
     let file_name = "Horse Jumping.png";
 
-    let data = fs::read(&input_path)
-        .unwrap_or_else(|e| panic!("read {file_name}: {e}"));
+    let data = fs::read(&input_path).unwrap_or_else(|e| panic!("read {file_name}: {e}"));
 
     let config = Config::default().quality(5).speed(5);
     let converter = Converter::new(config).expect("failed to build Converter");
