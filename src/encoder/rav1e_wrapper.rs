@@ -363,21 +363,6 @@ fn encode_16bit(
 ///   `±33.5 M + 33.6 M ≈ ±67 M`, well within the `i32` range of `±2.1 × 10⁹`.
 #[inline]
 fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16, quality_1_10: u8) -> [u16; 3] {
-    // Quality 9–10: use the f32 path for near-exact conversion (no rounding error).
-    if quality_1_10 >= 9 {
-        return rgba16_to_10bit_ycbcr_bt601_f32(r, g, b);
-    }
-
-    // Number of extra bits to round the 10-bit output by, based on quality tier.
-    // This controls how much rounding error is tolerated beyond the inherent ±1 LSB
-    // from the integer fixed-point coefficients.
-    let extra_bits: u32 = match quality_1_10 {
-        7..=8 => 0, // ±1 LSB (minimal — coefficient error only)
-        5..=6 => 1, // ±2 LSB
-        3..=4 => 2, // ±4 LSB
-        _ => 3,     // quality 1–2: ±8 LSB
-    };
-
     // Maximum value representable in 10-bit (2¹⁰ − 1 = 1023).
     const MAX_10BIT: u32 = 1023;
     const MAX_10BIT_I32: i32 = 1023; // same value; avoids a u32→i32 cast in clamp
@@ -404,6 +389,21 @@ fn rgba16_to_10bit_ycbcr_bt601(r: u16, g: u16, b: u16, quality_1_10: u8) -> [u16
     const CR_B: i32 = -83;
     // 512 (chroma midpoint) pre-shifted by 2^16 and combined with rounding (2^15).
     const CHROMA_OFFSET: i32 = 512 * (1 << 16) + (1 << 15);
+
+    // Quality 9–10: use the f32 path for near-exact conversion (no rounding error).
+    if quality_1_10 >= 9 {
+        return rgba16_to_10bit_ycbcr_bt601_f32(r, g, b);
+    }
+
+    // Number of extra bits to round the 10-bit output by, based on quality tier.
+    // This controls how much rounding error is tolerated beyond the inherent ±1 LSB
+    // from the integer fixed-point coefficients.
+    let extra_bits: u32 = match quality_1_10 {
+        7..=8 => 0, // ±1 LSB (minimal — coefficient error only)
+        5..=6 => 1, // ±2 LSB
+        3..=4 => 2, // ±4 LSB
+        _ => 3,     // quality 1–2: ±8 LSB
+    };
 
     let (r32, g32, b32) = (u32::from(r), u32::from(g), u32::from(b));
     let (ri, gi, bi) = (i32::from(r), i32::from(g), i32::from(b));
