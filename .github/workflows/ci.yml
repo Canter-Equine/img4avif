@@ -297,3 +297,23 @@ jobs:
       - name: Run Playwright mobile browser tests
         working-directory: tests/wasm
         run: npx playwright test
+
+      - name: Run WASM fixture conversion test (quality=10, speed=10)
+        run: cargo test --test wasm_fixture_conversion wasm_fixture_quality10_speed10 -- --nocapture
+
+      - name: Run WASM fixture conversion test (quality=5, speed=5)
+        run: cargo test --test wasm_fixture_conversion wasm_fixture_quality5_speed5 -- --nocapture
+
+      - name: Upload fixture conversion output (wasm-10)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-conversion-wasm-10
+          path: examples/out/*.wasm-10.avif
+          if-no-files-found: error
+
+      - name: Upload fixture conversion output (wasm-5)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-conversion-wasm-5
+          path: examples/out/*.wasm-5.avif
+          if-no-files-found: error
