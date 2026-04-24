@@ -14,9 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Quality-dependent YCbCr rounding**: The colour-conversion precision in the
   16-bit PNG → 10-bit AVIF path now scales with the configured quality level,
   so high-quality encodes get the most accurate colour representation while
-  lower-quality encodes can afford slightly coarser arithmetic (which is
-  invisible at those quality settings because the AV1 encoder's quantisation
-  step dominates).
+  lower-quality encodes can afford slightly coarser arithmetic.
 
   | Quality | YCbCr conversion path | Max rounding error |
   |---------|----------------------|--------------------|
